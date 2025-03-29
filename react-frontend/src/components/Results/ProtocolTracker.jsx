@@ -1,6 +1,5 @@
 // ProtocolTracker.jsx
 import React, { useState, useEffect } from "react";
-import "../../styles/ProtocolTracker.css";
 import RestrictionSiteSummary from "./RestrictionSiteSummary";
 import MutationExplorer from "./MutationExplorer";
 
@@ -422,6 +421,7 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
 };
 
 // Main ProtocolTracker Component
+// eslint-disable-next-line no-unused-vars
 const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
   // Filter steps by status
   const completedSteps = steps.filter((step) => step.status === "completed");
@@ -446,6 +446,7 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
     if (!sseData) return;
 
     Object.entries(sseData)
+      // eslint-disable-next-line no-unused-vars
       .filter(([_, data]) => data?.callout)
       .forEach(([stepName, stepData]) => {
         setStepCallouts((prev) => {
@@ -484,6 +485,7 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
     if (userSelectedTab || !sseData) return;
 
     const stepsWithCallouts = Object.entries(sseData)
+      // eslint-disable-next-line no-unused-vars
       .filter(([_, data]) => data?.callout)
       .map(([stepName, data]) => ({
         stepName,

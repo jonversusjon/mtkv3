@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import SequenceTab from "./SequenceTab";
-import "../../styles/SequenceTabs.css";
 
 // Constants should be outside the component to avoid recreating on each render
 const MTK_PART_NUMS = [
@@ -48,16 +47,17 @@ function SequenceTabs({
   }, [sequencesToDomesticate.length, activeTab]);
 
   return (
-    <div className="sequences-section">
-      <div className="section-header">
-        <div className="section-title">
-          <h3>Sequences to Domesticate</h3>
+    <div className="w-full">
+      {/* Section Header */}
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h3 className="text-lg font-semibold">Sequences to Domesticate</h3>
         </div>
 
-        <div className="sequence-controls">
+        <div className="flex space-x-2">
           <button
             type="button"
-            className="btn btn-sm btn-outline-danger"
+            className="w-8 h-8 flex items-center justify-center rounded border border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             onClick={removeSequence}
             disabled={sequencesToDomesticate.length <= 1}
             aria-label="Remove sequence"
@@ -66,7 +66,7 @@ function SequenceTabs({
           </button>
           <button
             type="button"
-            className="btn btn-sm btn-outline-success"
+            className="w-8 h-8 flex items-center justify-center rounded border border-green-500 text-green-500 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             onClick={addSequence}
             disabled={sequencesToDomesticate.length >= 10}
             aria-label="Add sequence"
@@ -76,31 +76,40 @@ function SequenceTabs({
         </div>
       </div>
 
-      <div className="sequence-tabs-container">
+      {/* Tabs Container */}
+      <div className="mt-6">
         {/* Tab Navigation */}
-        <div className="tab-buttons">
-          {sequencesToDomesticate.map((_, index) => (
-            <button
-              key={index}
-              type="button"
-              className={`tab-button ${activeTab === index ? "active" : ""}`}
-              onClick={() => setActiveTab(index)}
-              role="tab"
-              aria-selected={activeTab === index}
-              aria-controls={`sequence-tab-${index}`}
-              id={`sequence-tab-button-${index}`}
-            >
-              {index + 1}
-            </button>
-          ))}
+        <div className="relative">
+          <div className="flex gap-8 pb-2 mb-2 overflow-x-auto scrollbar-hide max-w-lg scroll-smooth">
+            {sequencesToDomesticate.map((_, index) => (
+              <button
+                key={index}
+                type="button"
+                className={`flex-auto relative py-3 px-4 text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeTab === index 
+                    ? "text-gray-900 font-bold after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-indigo-600 after:scale-x-100" 
+                    : "text-gray-500 hover:text-gray-900 after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-indigo-600 after:scale-x-0"
+                } after:transition-transform after:duration-300`}
+                onClick={() => setActiveTab(index)}
+                role="tab"
+                aria-selected={activeTab === index}
+                aria-controls={`sequence-tab-${index}`}
+                id={`sequence-tab-button-${index}`}
+              >
+                {index + 1}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Tab Content Panels */}
-        <div className="tab-content">
+        <div className="bg-gray-200 border border-gray-300 rounded-xl p-6 overflow-x-hidden mb-8 max-w-lg">
           {sequencesToDomesticate.map((sequence, index) => (
             <div
               key={index}
-              className={`tab-pane ${activeTab === index ? "active" : ""}`}
+              className={`transition-opacity duration-300 ${
+                activeTab === index ? "block opacity-100" : "hidden opacity-0"
+              }`}
               id={`sequence-tab-${index}`}
               role="tabpanel"
               aria-labelledby={`sequence-tab-button-${index}`}

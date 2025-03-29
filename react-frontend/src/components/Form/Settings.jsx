@@ -40,19 +40,18 @@ function Settings({
   }, [show, handleOutsideClick]); // Re-run effect if show or the callback changes
 
   // --- Slider Logic ---
-  // Find the index corresponding to the current maxResults value [cite: uploaded:src/components/Form/Settings.jsx]
+  // Find the index corresponding to the current maxResults value
   const currentIndex = sliderValues.indexOf(formData.maxResults);
-  // Default to 0 if the value isn't found (e.g., initial state) [cite: uploaded:src/components/Form/Settings.jsx]
+  // Default to 0 if the value isn't found (e.g., initial state)
   const safeIndex = currentIndex !== -1 ? currentIndex : 0;
 
-  // If not shown, return null (render nothing) [cite: uploaded:src/components/Form/Settings.jsx]
+  // If not shown, return null (render nothing)
   if (!show) return null;
 
   // --- Main Render ---
   return (
     // Modal container: Positioned absolutely relative to nearest positioned ancestor (likely Sidebar)
     // Use Tailwind for positioning, sizing, styling, and responsiveness based on Settings.css
-    // [cite: uploaded:src/styles/Settings.css, uploaded:src/styles/global/responsive.css]
     <div
       // Use fixed positioning relative to viewport, or absolute if nested in a relative parent like Sidebar
       // Adjust top/right/left as needed. Using absolute positioning here assuming it's inside the relative/sticky Sidebar.
@@ -71,7 +70,7 @@ function Settings({
         Settings
       </h2>
 
-      {/* Form Groups styled with Tailwind Flexbox based on .form-group [cite: uploaded:src/styles/Settings.css] */}
+      {/* Form Groups styled with Tailwind Flexbox based on .form-group*/}
       <div className="space-y-4"> {/* Add spacing between form groups */}
 
         {/* Species Selection */}
@@ -81,7 +80,7 @@ function Settings({
           </label>
           <select
             id="species-select"
-            // Input styling based on .form-control [cite: uploaded:src/styles/Settings.css]
+            // Input styling based on .form-control
             className="flex-1 p-1.5 border rounded-sm text-sm bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:ring-blue-500 focus:border-blue-500"
             value={formData.species || ""} // Ensure value is controlled
             onChange={(e) => updateField("species", e.target.value)} // [cite: uploaded:src/components/Form/Settings.jsx]
@@ -158,7 +157,7 @@ function Settings({
         </div>
 
         {/* Verbose Mode Toggle */}
-        {/* Styled based on .form-check [cite: uploaded:src/styles/Settings.css] */}
+        {/* Styled based on .form-check */}
         <div className="flex items-center gap-2">
           <input
             type="checkbox"

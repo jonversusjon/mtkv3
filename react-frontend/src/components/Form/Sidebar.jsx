@@ -6,7 +6,7 @@ import Settings from "./Settings"; // [cite: uploaded:src/components/Form/Settin
 const SidebarItem = ({ seq, index, errors = [], isActive, onSelectTab }) => (
   <li
     onClick={() => onSelectTab(index)}
-    // Added explicit light mode text/border colors [cite: uploaded:src/styles/Sidebar.css, uploaded:src/styles/global/theme.css]
+    // Added explicit light mode text/border colors
     className={`flex items-center gap-3 p-2 border-b border-gray-200 text-gray-800 cursor-pointer transition-colors duration-150 ease-in-out
                 dark:border-gray-700 dark:text-gray-200
                 ${
@@ -34,7 +34,7 @@ const SidebarItem = ({ seq, index, errors = [], isActive, onSelectTab }) => (
           />
         </>
       ) : (
-        // Checkmark - explicit light/dark colors [cite: uploaded:src/styles/Sidebar.css]
+        // Checkmark - explicit light/dark colors
         <div className="text-green-600 dark:text-green-500 text-xl font-bold">✔</div>
       )}
     </div>
@@ -58,8 +58,6 @@ const SettingsToggle = ({ settingsToggleRef, showSettings, setShowSettings }) =>
   <button
     ref={settingsToggleRef}
     type="button"
-    // Added explicit light mode colors based on original AppHeader.css [cite: uploaded:src/styles/AppHeader.css]
-    // Note: Original CSS used black background in light mode. Adjust if needed.
     className="flex items-center gap-1.5 px-2 py-1.5 m-4 border rounded-md text-xs font-medium transition-colors
                bg-black border-gray-300 text-white hover:bg-gray-700 /* Light Mode */
                dark:bg-gray-700 dark:border-gray-500 dark:text-gray-200 dark:hover:bg-gray-600" /* Dark Mode - Adjusted from previous */

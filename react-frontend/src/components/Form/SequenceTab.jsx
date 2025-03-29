@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import SequenceInput from "../Form/SequenceInput";
 import { validateDnaSequence } from "../../utils/dnaUtils";
-import "../../styles/SequenceTab.css";
 
 function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
   const [validation, setValidation] = useState({
@@ -72,9 +71,12 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
   };
 
   return (
-    <div className="sequence-tab-content">
-      <div className="form-row primer-name-row">
-        <label htmlFor={`primer-name-${index}`} className="primer-name-label">
+    <div className="p-6 space-y-4">
+      <div className="flex flex-col gap-2">
+        <label 
+          htmlFor={`primer-name-${index}`} 
+          className="text-sm font-medium text-gray-700"
+        >
           Primer Name:
         </label>
         <input
@@ -82,28 +84,37 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
           id={`primer-name-${index}`}
           value={sequence.primerName}
           onChange={handlePrimerNameChange}
-          className="form-control primer-name-input"
+          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           placeholder="Enter primer name"
         />
       </div>
 
-      <div className="form-row sequence-header">
-        <label htmlFor={`sequence-${index}`}>Sequence {index + 1}:</label>
+      <div className="flex justify-between items-center">
+        <label 
+          htmlFor={`sequence-${index}`}
+          className="text-sm font-medium text-gray-700"
+        >
+          Sequence {index + 1}:
+        </label>
         {charCount > 0 && (
-          <div className="char-count">Length: {charCount} bp</div>
+          <div className="text-sm text-gray-500">Length: {charCount} bp</div>
         )}
       </div>
-      <div className="form-row">
+      
+      <div className="space-y-2">
         <SequenceInput
           id={`sequence-${index}`}
           value={sequence.sequence}
           onChange={handleSequenceChange}
           placeholder="Paste your DNA sequence here"
+          className="w-full p-2 border border-gray-300 rounded-md min-h-32 resize-y"
         />
         {validation.message && (
           <div
-            className={`validation-message ${
-              validation.isAdvisory ? "advisory" : "error"
+            className={`text-sm p-2 rounded ${
+              validation.isAdvisory 
+                ? "bg-yellow-100 text-yellow-700 border border-yellow-300" 
+                : "bg-red-100 text-red-700 border border-red-300"
             }`}
           >
             {validation.message}
@@ -111,16 +122,19 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
         )}
       </div>
 
-      <div className="form-row mtk-parts-row">
-        <div className="mtk-part-container">
-          <label htmlFor={`mtk-part-left-${index}`} className="mtk-part-label">
+      <div className="flex flex-wrap gap-4">
+        <div className="flex-1 min-w-[150px]">
+          <label 
+            htmlFor={`mtk-part-left-${index}`} 
+            className="block mb-2 text-sm font-medium text-gray-700"
+          >
             {useSeparateParts ? "MTK Part Number Left:" : "MTK Part Number:"}
           </label>
           <select
             id={`mtk-part-left-${index}`}
             value={sequence.mtkPartLeft || ""}
             onChange={handleMtkPartChange("mtkPartLeft")}
-            className="form-control mtk-part-select"
+            className="w-full p-2 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           >
             {mtkPartOptions.map((part) => (
               <option key={part} value={part}>
@@ -129,11 +143,12 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
             ))}
           </select>
         </div>
+        
         {useSeparateParts && (
-          <div className="mtk-part-container">
+          <div className="flex-1 min-w-[150px]">
             <label
               htmlFor={`mtk-part-right-${index}`}
-              className="mtk-part-label"
+              className="block mb-2 text-sm font-medium text-gray-700"
             >
               MTK Part Number Right:
             </label>
@@ -141,7 +156,7 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
               id={`mtk-part-right-${index}`}
               value={sequence.mtkPartRight || ""}
               onChange={handleMtkPartChange("mtkPartRight")}
-              className="form-control mtk-part-select"
+              className="w-full p-2 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
               {mtkPartOptions.map((part) => (
                 <option key={part} value={part}>
@@ -153,14 +168,15 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
         )}
       </div>
 
-      <div className="form-row toggle-container">
-        <label className="toggle-label">
+      <div className="flex items-center">
+        <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
             checked={useSeparateParts}
             onChange={handleToggleChange}
+            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
           />
-          Use separate left/right part numbers
+          <span className="text-sm text-gray-700">Use separate left/right part numbers</span>
         </label>
       </div>
     </div>

@@ -1,8 +1,5 @@
 import React from 'react';
 
-// Remove the CSS import:
-// import '../../styles/SequenceInput.css';
-
 function SequenceInput({ id, value, onChange, placeholder }) {
   // Combine styles from .sequence-input-wrapper and apply directly if needed,
   // or simplify if the wrapper only provides width. Here, assuming wrapper's w-full is sufficient.
@@ -11,7 +8,7 @@ function SequenceInput({ id, value, onChange, placeholder }) {
       <textarea
         id={id}
         // Translate styles from .sequence-textarea, .form-control.sequence-textarea,
-        // :focus, .dark-mode variants from SequenceInput.css [cite: uploaded:src/styles/SequenceInput.css]
+        // :focus, .dark-mode variants from SequenceInput.css
         className="
           w-full min-h-[100px] p-2
           border border-gray-300 rounded
