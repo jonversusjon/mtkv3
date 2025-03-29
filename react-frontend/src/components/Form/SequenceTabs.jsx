@@ -86,8 +86,8 @@ function SequenceTabs({
                 key={index}
                 type="button"
                 className={`flex-auto relative py-3 px-4 text-sm font-medium whitespace-nowrap transition-colors ${
-                  activeTab === index 
-                    ? "text-gray-900 font-bold after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-indigo-600 after:scale-x-100" 
+                  activeTab === index
+                    ? "text-gray-900 font-bold after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-indigo-600 after:scale-x-100"
                     : "text-gray-500 hover:text-gray-900 after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-indigo-600 after:scale-x-0"
                 } after:transition-transform after:duration-300`}
                 onClick={() => setActiveTab(index)}
@@ -103,7 +103,7 @@ function SequenceTabs({
         </div>
 
         {/* Tab Content Panels */}
-        <div className="bg-gray-200 border border-gray-300 rounded-xl p-6 overflow-x-hidden mb-8 max-w-lg">
+        <div className="w-full bg-gray-200 border border-gray-300 rounded-xl p-0 overflow-x-hidden mb-8 max-w-lg">
           {sequencesToDomesticate.map((sequence, index) => (
             <div
               key={index}

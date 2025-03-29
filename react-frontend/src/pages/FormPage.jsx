@@ -35,7 +35,6 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
   const { updateSettings, updateFormInput } = useFormUpdater(setFormData);
 
   // --- Data Loading Effects ---
-  // Load persisted → dummy → default
   useEffect(() => {
     const initializeFormData = async () => {
       try {
@@ -52,19 +51,19 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
           const { species: speciesList = [] } = await speciesResp.json();
 
           setFormData((prev) => ({
-            ...prev, // Keep existing defaults if any
-            ...dummy, // Apply dummy data
+            ...prev,
+            ...dummy,
             sequencesToDomesticate: dummy.sequencesToDomesticate || [
               defaultSequence,
-            ], // Ensure sequences are present
+            ],
             availableSpecies: speciesList,
-            species: dummy.species || speciesList[0] || "", // Set default species
-            kozak: dummy.kozak || "MTK", // Set default kozak
+            species: dummy.species || speciesList[0] || "",
+            kozak: dummy.kozak || "MTK",
           }));
         }
       } catch (err) {
         console.error("Error loading initial form data", err);
-        setError("Could not load initial form data."); // Set user-facing error
+        setError("Could not load initial form data.");
       } finally {
         setPrefillLoaded(true);
         setSpeciesLoaded(true);
@@ -74,14 +73,13 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
   }, []);
 
   // --- Validation ---
-  // Validate form data using custom hook
   const { errors, isValid } = useValidateForm(
     formData,
     prefillLoaded && speciesLoaded
   );
 
   // --- Event Handlers ---
-  const handleFormSubmit = async (e) => {
+  const handleFormSubmit = async (e, finalFormData) => {
     e.preventDefault();
 
     if (!isValid) {
@@ -93,18 +91,18 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
     setError(null);
 
     try {
-      sessionStorage.setItem("formData", JSON.stringify(formData));
-      // Submit protocol using API helper function
-      const { jobId } = await submitProtocol(formData);
+      sessionStorage.setItem("formData", JSON.stringify(finalFormData));
+      const { jobId } = await submitProtocol(finalFormData);
       sessionStorage.setItem("jobId", jobId);
 
-      // Create placeholder results for immediate navigation
-      const placeholders = formData.sequencesToDomesticate.map((seq, idx) => ({
-        id: idx,
-        placeholder: true,
-        sequence: seq.sequence,
-        primerName: seq.primerName || `Sequence ${idx + 1}`,
-      }));
+      const placeholders = finalFormData.sequencesToDomesticate.map(
+        (seq, idx) => ({
+          id: idx,
+          placeholder: true,
+          sequence: seq.sequence,
+          primerName: seq.primerName || `Sequence ${idx + 1}`,
+        })
+      );
       sessionStorage.setItem("results", JSON.stringify(placeholders));
       setResults(placeholders);
       navigate("/results");
@@ -117,9 +115,7 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
   };
 
   // --- Conditional Rendering ---
-  // Show loading state until data is ready
   if (!prefillLoaded || !speciesLoaded) {
-    // [cite: uploaded:src/pages/FormPage.jsx]
     return (
       <div className="text-center text-xl py-10 text-gray-600 dark:text-gray-400">
         Loading form…
@@ -127,23 +123,14 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
     );
   }
 
-  // --- Main Render ---
   return (
-    // Use Tailwind for overall page container and spacing
     <div className="pt-4 pb-16">
-      {" "}
-      {/* Added padding top/bottom */}
-      {/* Use Tailwind for centering and text styling */}
       <header className="text-center mb-6">
         <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100">
           Primer Design Form
-        </h2>{" "}
-        {/* [cite: uploaded:src/pages/FormPage.jsx] */}
+        </h2>
       </header>
-      {/* Use Tailwind Flexbox for layout (Sidebar + Form) */}
-      {/* Adjusted responsive layout: Stack on small screens, side-by-side on larger */}
       <div className="flex flex-col md:flex-row gap-6">
-        {/* Sidebar Component */}
         <Sidebar
           sequences={formData.sequencesToDomesticate}
           errorsBySequence={errors.sequencesToDomesticate || {}}
@@ -155,9 +142,7 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
           updateSettings={updateSettings}
           formData={formData}
         />
-        {/* Main Form Area */}
         <main className="flex-1">
-          {/* Error Alert Box */}
           {error && (
             <div
               className="mb-4 p-4 border-l-4 border-red-500 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 dark:border-red-600 rounded-sm"
@@ -166,13 +151,11 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
               {error}
             </div>
           )}
-          {/* Processing Indicator */}
           {processing && (
             <div className="mb-4 p-4 border-l-4 border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-600 rounded-sm">
               Processing your request... Please wait.
             </div>
           )}
-          {/* Form Component */}
           <Form
             onSubmit={handleFormSubmit}
             formData={formData}
