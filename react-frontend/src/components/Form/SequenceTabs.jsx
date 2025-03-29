@@ -88,7 +88,7 @@ function SequenceTabs({
             className={`
               flex-shrink-0
               px-6 py-2
-              text-sm font-medium
+              text-lg font-medium
               text-center      
               border-b-2       
               
