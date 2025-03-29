@@ -25,3 +25,59 @@ var/
 Dockerfile
 docker-compose*.yaml
 
+# 🚫 Ignore system-specific files
+*.swp
+*.swo
+*.bak
+*.tmp
+*.DS_Store  # macOS
+Thumbs.db   # Windows
+
+# 🚫 Ignore pytest and test artifacts
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+*.coverage
+*.hypothesis/
+
+# 🚫 Ignore virtual environments
+__pypackages__/
+node_modules/  # If you have frontend assets
+npm-debug.log
+
+# 🚫 Ignore additional editor files
+*.sublime-workspace
+*.sublime-project
+
+# 🚫 Ignore Docker cache directories
+.cache/
+.dockerignore
+.docker/
+docker-compose.override.yml
+
+# 🚫 Ignore compiled Cython files
+*.c
+*.so
+
+# 🚫 Ignore Jupyter/IPython checkpoints
+.ipynb_checkpoints/
+
+# 🚫 Ignore temporary database files
+*.db
+*.sqlite3
+*.sqlite
+
+# 🚫 Ignore temporary files
+*.pid
+*.lock
+*.log
+*.gz
+*.zip
+*.tar
+*.tgz
+*.rar
+
+# 🚫 Ignore other temporary or generated files
+tmp/
+temp/

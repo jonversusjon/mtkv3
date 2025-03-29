@@ -7,14 +7,12 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
     message: "",
     isAdvisory: false,
   });
-  // Instead of a state for charCount, compute it directly:
   const charCount = sequence.sequence ? sequence.sequence.length : 0;
   const [useSeparateParts, setUseSeparateParts] = useState(false);
 
   const hasInitialized = useRef(false);
   useEffect(() => {
     if (!hasInitialized.current && mtkPartOptions.length > 0) {
-      // Only update if the current values are empty
       if (!sequence.mtkPartLeft || sequence.mtkPartLeft.trim() === "") {
         updateSequence("mtkPartLeft", mtkPartOptions[0]);
       }
@@ -71,7 +69,7 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
   };
 
   return (
-    <div className="p-6 space-y-4 bg-white dark:bg-gray-900 rounded-lg transition-colors duration-200">
+    <div className="p-4 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 space-y-4 rounded-lg shadow-md">
       <div className="flex flex-col gap-2">
         <label 
           htmlFor={`primer-name-${index}`} 
@@ -84,7 +82,7 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
           id={`primer-name-${index}`}
           value={sequence.primerName}
           onChange={handlePrimerNameChange}
-          className="w-full p-2 border border-gray-300 rounded-md bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-400 dark:focus:border-indigo-400"
+          className="w-full p-3 border border-gray-300 rounded-md bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-400 dark:focus:border-indigo-400"
           placeholder="Enter primer name"
         />
       </div>
@@ -92,12 +90,12 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
       <div className="flex justify-between items-center">
         <label 
           htmlFor={`sequence-${index}`}
-          className="text-sm font-medium text-gray-700"
+          className="text-sm font-medium text-gray-700 dark:text-gray-300"
         >
           Sequence {index + 1}:
         </label>
         {charCount > 0 && (
-          <div           className="text-sm text-gray-500 dark:text-gray-400">Length: {charCount} bp</div>
+          <div className="text-sm text-gray-600 dark:text-gray-400">Length: {charCount} bp</div>
         )}
       </div>
       
@@ -107,7 +105,6 @@ function SequenceTab({ sequence, index, updateSequence, mtkPartOptions }) {
           value={sequence.sequence}
           onChange={handleSequenceChange}
           placeholder="Paste your DNA sequence here"
-          className="w-full p-2 border border-gray-300 rounded-md min-h-32 resize-y bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-400 dark:focus:border-indigo-400"
         />
         {validation.message && (
           <div
