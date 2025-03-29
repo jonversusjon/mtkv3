@@ -60,7 +60,8 @@ function SequenceTabs({
         <div className="flex space-x-2">
           <button
             type="button"
-            className="w-8 h-8 flex items-center justify-center rounded border border-red-500 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            // className="w-8 h-8 flex items-center justify-center rounded border border-indigo-300 text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-5 h-6 flex items-center justify-center rounded border-none border-indigo-300 text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={removeSequence}
             disabled={sequencesToDomesticate.length <= 1}
           >
@@ -68,7 +69,7 @@ function SequenceTabs({
           </button>
           <button
             type="button"
-            className="w-8 h-8 flex items-center justify-center rounded border border-green-500 text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-5 h-6 flex items-center justify-center rounded border-none border-indigo-300 text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={addSequence}
             disabled={sequencesToDomesticate.length >= 10}
           >

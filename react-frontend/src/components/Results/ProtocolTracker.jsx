@@ -45,7 +45,10 @@ const TabButton = ({
   stepProgress,
 }) => (
   <button
-    className={`protocol-tab-button ${isActive ? "active" : ""}`}
+    className={`protocol-tab-button p-4 flex items-center gap-2 
+      ${isActive 
+        ? "active border-b-2 border-blue-500 font-bold" 
+        : "border-b border-transparent"}`}
     onClick={onClick}
   >
     {notificationCount > 0 ? (
@@ -525,7 +528,20 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
   return (
     <div>
       {/* Tab Buttons Container - Making it sticky with Tailwind */}
-      <div className="sticky top-12 z-20 flex bg-white dark:bg-gray-900 shadow-xs protocol-tab-container">
+      <div
+        className="sticky top-0 z-50 flex bg-white dark:bg-gray-900 shadow-sm protocol-tab-container"
+        style={{ 
+          overflowX: "auto", 
+          whiteSpace: "nowrap",
+          scrollbarWidth: "none", /* Firefox */
+          msOverflowStyle: "none", /* IE and Edge */
+        }}
+        css={`
+          &::-webkit-scrollbar {
+            display: none; /* Safari and Chrome */
+          }
+        `}
+      >
         {displaySteps.map((step) => (
           <TabButton
             key={step.name}

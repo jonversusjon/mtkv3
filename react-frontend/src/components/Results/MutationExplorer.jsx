@@ -237,7 +237,7 @@ const MutationExplorer = ({ stepSseData }) => {
             {substitutionRow.join("")}
           </pre>
           {/* Middle row: Original context with RS highlighting */}
-          <div className="dark:text-gray-200">{highlightedRow}</div>
+          <div className="dark:text-gray-200 select-all">{highlightedRow}</div>
           {/* Bottom row: Underline for mutated codon */}
           <pre className="font-mono text-lg text-red-500 dark:text-red-400 whitespace-pre">
             {underlineRow.join("")}
@@ -445,7 +445,7 @@ const MutationExplorer = ({ stepSseData }) => {
   return (
     <div className="mt-4">
       {/* Make the title sticky with Tailwind */}
-      <div className="sticky top-24 z-10 bg-white dark:bg-gray-900 p-2 border-b border-gray-300 dark:border-gray-700 shadow-xs">
+      <div className="sticky top-14 z-40 bg-white dark:bg-gray-900 p-2 border-b border-gray-300 dark:border-gray-700 shadow-sm">
         <h2 className="text-xl font-bold dark:text-gray-100">
           Mutation Explorer
         </h2>
@@ -465,7 +465,7 @@ const MutationExplorer = ({ stepSseData }) => {
                 Restriction Site {siteIndex + 1} ({site.siteKey})
               </h3>
               {/* Make the context sequence sticky with Tailwind */}
-              <div className="sticky top-36 z-10 bg-gray-50 dark:bg-gray-800 p-2 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-xs">
+              <div className="sticky top-28 z-20 bg-gray-50 dark:bg-gray-800 p-2 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-sm">
                 {renderEnhancedContextSequence(site, selectedMutation)}
               </div>
 

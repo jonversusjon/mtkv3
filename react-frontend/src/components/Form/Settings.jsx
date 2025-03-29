@@ -39,8 +39,11 @@ function Settings({
   }, [show, handleOutsideClick]); // Re-run effect if show or the callback changes
 
   // --- Slider Logic ---
+  // Make sure formData.maxResults has a default value
+  const maxResults = formData.maxResults || "one";
+  
   // Find the index corresponding to the current maxResults value
-  const currentIndex = sliderValues.indexOf(formData.maxResults);
+  const currentIndex = sliderValues.indexOf(maxResults);
   // Default to 0 if the value isn't found (e.g., initial state)
   const safeIndex = currentIndex !== -1 ? currentIndex : 0;
 
@@ -62,9 +65,18 @@ function Settings({
                  bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600
                  pointer-events-auto transition-opacity duration-200 ease-in-out"
       >
-        <h2 id="settings-title" className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
-          Settings
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 id="settings-title" className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+            Settings
+          </h2>
+          <button 
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+            aria-label="Close settings"
+          >
+            ✕
+          </button>
+        </div>
 
         {/* Form Groups styled with Tailwind Flexbox */}
         <div className="space-y-4">
@@ -142,7 +154,7 @@ function Settings({
                 }}
               />
               <span className="text-sm text-gray-600 dark:text-gray-400 w-10 text-right">
-                {formData.maxResults || "one"}
+                {maxResults}
               </span>
             </div>
           </div>
