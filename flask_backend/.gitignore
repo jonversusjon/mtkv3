@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.flaskenv
+*.so
+.Python
+log_utils/logs
+log_utils/celery_logs
+/.vscode
