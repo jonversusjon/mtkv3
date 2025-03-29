@@ -12,6 +12,8 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [results, setResults] = useState(null);
 
+  console.log("Environment variables:", import.meta.env);
+
   return (
     <div>
       <Router>

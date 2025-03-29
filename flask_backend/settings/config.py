@@ -29,7 +29,7 @@ class BaseConfig:
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
-    CORS_ORIGINS = ["http://localhost:3000"]
+    CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173"]
 
 class ProductionConfig(BaseConfig):
     CELERY_WORKER_LOG_FILE = "/var/log/myapp/celery.log"
