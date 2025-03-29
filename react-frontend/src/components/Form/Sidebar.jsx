@@ -84,14 +84,19 @@ const Sidebar = ({
 }) => {
 
   const getSequenceErrors = (index) => {
-      const sequenceErrors = [];
-      const errorKeyPrefix = `sequencesToDomesticate[${index}]`;
-      for (const key in errorsBySequence) {
-          if (key.startsWith(errorKeyPrefix)) {
-              sequenceErrors.push(errorsBySequence[key]);
-          }
+    const sequenceErrors = [];
+
+    // Look for errors that match the sequence index pattern
+    // This handles how errors are actually structured in useValidateForm.js
+    for (const key in errorsBySequence) {
+      // Match pattern like "sequencesToDomesticate[0].sequence" or similar
+      const regex = new RegExp(`sequencesToDomesticate\\[${index}\\]\\.`);
+      if (regex.test(key)) {
+        sequenceErrors.push(errorsBySequence[key]);
       }
-      return sequenceErrors;
+    }
+
+    return sequenceErrors;
   };
 
   return (

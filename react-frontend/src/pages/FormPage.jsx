@@ -133,7 +133,7 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
       <div className="flex flex-col md:flex-row gap-6">
         <Sidebar
           sequences={formData.sequencesToDomesticate}
-          errorsBySequence={errors.sequencesToDomesticate || {}}
+          errorsBySequence={errors || {}}
           onSelectTab={setActiveTabIndex}
           activeTabIndex={activeTabIndex}
           showSettings={showSettings}
