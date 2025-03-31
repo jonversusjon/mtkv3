@@ -56,6 +56,8 @@ class MutationOptimizer():
         logger.validate(mutation_options and isinstance(mutation_options, dict),
                         f"Received {len(mutation_options)} mutation site(s)")
         logger.log_step("Generate Mutation Sets", "Generating all possible mutation combinations.")
+        
+        # List of all restriction site keys
         rs_keys = list(mutation_options.keys())
         mutation_options_by_site = [mutation_options[site] for site in rs_keys]
 
@@ -65,21 +67,30 @@ class MutationOptimizer():
         )
         
         valid_mutation_sets = []
-        # Iterate over each mutation set (a tuple of Mutation objects) in the Cartesian product.
-        for mutation_set in tqdm(product(*mutation_options_by_site), desc="Processing Mutation Sets", unit="set"):
-            # Convert each Mutation into the expected dict format.
+        
+        # Iterate over each candidate tuple in the Cartesian product.
+        for mutation_tuple in tqdm(product(*mutation_options_by_site), desc="Processing Mutation Sets", unit="set"):
+            # Build a complete candidate mapping: one mutation per rsKey.
+            candidate_dict = {rs_keys[i]: mutation for i, mutation in enumerate(mutation_tuple)}
+            
+            # Prepare data for compatibility matrix computation.
+            # This remains similar to before—each mutation's overhang options are extracted.
             mutation_set_dict = [
-                {"overhangs": {"overhang_options": mutation.overhang_options}}
-                for mutation in mutation_set
+                {"overhangs": {"overhang_options": mutation.overhang_options}} 
+                for mutation in mutation_tuple
             ]
             
-            # Compute the compatibility matrix for this mutation set.
+            # Compute the compatibility matrix.
             matrix = self.create_compatibility_matrix(mutation_set_dict)
             
             # Only add the mutation set if the matrix has at least one valid (1) entry.
             if np.any(matrix == 1):
                 valid_mutation_sets.append(
-                    MutationSet(mutations=list(mutation_set), compatibility=matrix.tolist())
+                    MutationSet(
+                        alt_codons=candidate_dict,  # now using the new field name
+                        compatibility=matrix.tolist(),
+                        mut_primer_sets=[]
+                    )
                 )
         
         mutation_set_collection.sets = valid_mutation_sets

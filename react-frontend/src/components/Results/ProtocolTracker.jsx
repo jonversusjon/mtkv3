@@ -35,7 +35,7 @@ const ProgressStep = ({ name, stepProgress, message }) => {
   );
 };
 
-// Tab Button Component - This renders the actual tab buttons
+// Tab Button Component - This renders the actual tab buttons with spinner, notification bubble, and checkmark
 const TabButton = ({
   name,
   isActive,
@@ -46,17 +46,56 @@ const TabButton = ({
 }) => (
   <button
     className={`protocol-tab-button p-4 flex items-center gap-2 
-      ${isActive 
-        ? "active border-b-2 border-blue-500 font-bold" 
-        : "border-b border-transparent"}`}
+      ${
+        isActive
+          ? "active border-b-2 border-blue-500 font-bold"
+          : "border-b border-transparent"
+      }`}
     onClick={onClick}
   >
     {notificationCount > 0 ? (
-      <span className="tab-notification">{notificationCount}</span>
+      // Notification bubble for notification count
+      <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold rounded-full bg-red-500 text-white">
+        {notificationCount}
+      </span>
+    ) : stepProgress > 0 && stepProgress < 100 ? (
+      // Spinner while processing
+      <div className="animate-spin h-4 w-4">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          ></circle>
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+      </div>
     ) : status === "completed" || stepProgress === 100 ? (
-      <div className="checkmark-container">✓</div>
+      // Green checkmark icon
+      <div className="text-green-500 flex items-center justify-center w-5 h-5">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-5 w-5"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            fillRule="evenodd"
+            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </div>
     ) : (
-      <div className="checkmark-placeholder"></div>
+      // Empty placeholder when no notifications or not completed
+      <div className="checkmark-placeholder w-5 h-5"></div>
     )}
     <span className="tab-label">{name}</span>
   </button>
@@ -103,9 +142,18 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
   const [isMessagesOpen, setIsMessagesOpen] = useState(false);
   const [isPayloadVisible, setIsPayloadVisible] = useState(false);
   const [selectedMutationSetIndex] = useState(0);
+  const [copyText, setCopyText] = useState("Copy");
 
   // Get the SSE data for the current step
   const stepSseData = sseData?.[stepName];
+
+  const handleCopy = () => {
+    if (stepSseData) {
+      navigator.clipboard.writeText(JSON.stringify(stepSseData, null, 2));
+      setCopyText("Copied!");
+      setTimeout(() => setCopyText("Copy"), 2000);
+    }
+  };
 
   const renderStepDetailContent = () => {
     if (!stepSseData) {
@@ -366,9 +414,23 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
                 : "Show Raw SSE Payload"}
             </button>
             {isPayloadVisible && (
-              <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded-sm text-xs overflow-x-auto dark:text-gray-300">
-                {JSON.stringify(stepSseData, null, 2)}
-              </pre>
+              <>
+                <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded-sm text-xs overflow-x-auto dark:text-gray-300">
+                  {JSON.stringify(stepSseData, null, 2)}
+                </pre>
+                <button
+                  className="text-blue-500 hover:text-blue-700 text-xs cursor-pointer subtle-link mt-2 dark:text-gray-400 dark:hover:text-gray-300"
+                  onClick={handleCopy}
+                  style={{
+                    textDecoration: "none",
+                    fontStyle: "italic",
+                    border: "none",
+                    background: "none",
+                  }}
+                >
+                  {copyText}
+                </button>
+              </>
             )}
           </div>
         )}
@@ -527,14 +589,14 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
 
   return (
     <div>
-      {/* Tab Buttons Container - Making it sticky with Tailwind */}
+      {/* Tab Buttons Container with proper sticky positioning */}
       <div
-        className="sticky top-0 z-50 flex bg-white dark:bg-gray-900 shadow-sm protocol-tab-container"
-        style={{ 
-          overflowX: "auto", 
+        className="sticky top-35 z-30 flex bg-white dark:bg-gray-900 shadow-sm protocol-tab-container"
+        style={{
+          overflowX: "auto",
           whiteSpace: "nowrap",
-          scrollbarWidth: "none", /* Firefox */
-          msOverflowStyle: "none", /* IE and Edge */
+          scrollbarWidth: "none" /* Firefox */,
+          msOverflowStyle: "none" /* IE and Edge */,
         }}
         css={`
           &::-webkit-scrollbar {

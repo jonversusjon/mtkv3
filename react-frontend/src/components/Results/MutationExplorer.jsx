@@ -1,12 +1,37 @@
 import React, { useState, useEffect } from "react";
 
 /**
- * Refactored component for exploring mutation options at different restriction sites
+ * Helper to group and de-duplicate codon options for a site.
+ * Groups by codon.contextPosition (e.g. "Position 30")
+ * and uses the codonSequence as the unique identifier.
  */
+const groupUniqueCodons = (site) => {
+  const groups = {};
+  site.mutations.forEach((mutation, mIndex) => {
+    if (mutation.mutCodons) {
+      mutation.mutCodons.forEach((mutCodon) => {
+        const codon = mutCodon.codon;
+        if (codon.contextPosition === undefined) return;
+        const groupKey = `Position ${codon.contextPosition}`;
+        if (!groups[groupKey]) {
+          groups[groupKey] = {};
+        }
+        const seq = codon.codonSequence;
+        if (!groups[groupKey][seq]) {
+          groups[groupKey][seq] = { codon, mutationIndices: [mIndex] };
+        } else {
+          groups[groupKey][seq].mutationIndices.push(mIndex);
+        }
+      });
+    }
+  });
+  return groups;
+};
+
 const MutationExplorer = ({ stepSseData }) => {
   // State for tracking selected mutations at each restriction site
   const [selectedMutations, setSelectedMutations] = useState({});
-  // New state for tracking selected codon options per site (grouped by codon position)
+  // State for tracking selected codon option per site (flat composite key)
   const [selectedCodonOption, setSelectedCodonOption] = useState({});
   // State to hold parsed and organized data
   const [restrictionSites, setRestrictionSites] = useState([]);
@@ -16,6 +41,8 @@ const MutationExplorer = ({ stepSseData }) => {
   // Initialize data on component load
   useEffect(() => {
     const organizeBySite = (sets, rsKeys) => {
+      if (!sets || !Array.isArray(sets) || sets.length === 0) return [];
+
       const siteMap = {};
       rsKeys.forEach((key) => {
         siteMap[key] = {
@@ -26,35 +53,46 @@ const MutationExplorer = ({ stepSseData }) => {
         };
       });
 
+      // Process each set in the array
       sets.forEach((set) => {
-        if (!set.mutations) return;
-        set.mutations.forEach((mutation) => {
-          const siteKey = determineSiteKey(mutation, rsKeys);
-          if (!siteKey || !siteMap[siteKey]) return;
+        if (!set.altCodons) return;
+        Object.keys(set.altCodons).forEach((siteKey) => {
+          if (!siteMap[siteKey]) return;
+          const mutation = set.altCodons[siteKey];
+          if (!mutation) return;
+
+          // Set the original sequence if not already set
           if (!siteMap[siteKey].originalSequence) {
             siteMap[siteKey].originalSequence = mutation.nativeContext;
           }
-          const existingMutation = siteMap[siteKey].mutations.find(
+
+          // Check if this mutation already exists in our collection
+          const existingMutationIndex = siteMap[siteKey].mutations.findIndex(
             (m) =>
               m.mutContext === mutation.mutContext &&
               m.firstMutIdx === mutation.firstMutIdx &&
               m.lastMutIdx === mutation.lastMutIdx
           );
-          if (!existingMutation) {
+
+          if (existingMutationIndex === -1) {
             siteMap[siteKey].mutations.push(mutation);
             siteMap[siteKey].contextSequences.add(mutation.mutContext);
           }
         });
       });
+
       return Object.values(siteMap).filter((site) => site.mutations.length > 0);
     };
 
     if (!stepSseData || !stepSseData.mutationSets) return;
+
     const { sets, rsKeys } = stepSseData.mutationSets;
-    if (!sets || !sets.length) return;
+    if (!sets || !Array.isArray(sets) || sets.length === 0) return;
+
     const sitesData = organizeBySite(sets, rsKeys);
     setRestrictionSites(sitesData);
 
+    // Initialize selection states
     const initialSelected = {};
     sitesData.forEach((site) => {
       initialSelected[site.siteKey] = 0;
@@ -62,12 +100,7 @@ const MutationExplorer = ({ stepSseData }) => {
     setSelectedMutations(initialSelected);
   }, [stepSseData]);
 
-  // Helper to determine which restriction site a mutation belongs to
-  const determineSiteKey = (mutation, rsKeys) => {
-    return rsKeys && rsKeys.length > 0 ? rsKeys[0] : null;
-  };
-
-  // New handler for selecting codon options grouped by codon position
+  // Handler for selecting a codon option
   const handleOptionSelect = (siteKey, groupKey, optionIndex) => {
     setSelectedCodonOption((prev) => ({
       ...prev,
@@ -89,74 +122,78 @@ const MutationExplorer = ({ stepSseData }) => {
   const getMutatedSequence = (originalSequence, mutation) => {
     if (!mutation || !mutation.mutCodons || !originalSequence)
       return originalSequence;
+
     let mutatedSeq = originalSequence;
     mutation.mutCodons.forEach((mutCodon) => {
       const codon = mutCodon.codon;
       if (codon && codon.contextPosition !== undefined) {
-        const position = codon.contextPosition;
+        const pos = codon.contextPosition;
         mutatedSeq =
-          mutatedSeq.substring(0, position) +
+          mutatedSeq.substring(0, pos) +
           codon.codonSequence +
-          mutatedSeq.substring(position + 3);
+          mutatedSeq.substring(pos + 3);
       }
     });
     return mutatedSeq;
   };
 
-  // Render the context sequence with aligned proposed codon swap visualization
+  // Render the context sequence with aligned codon substitution visualization
   const renderEnhancedContextSequence = (site, selectedMutation) => {
     if (!selectedMutation || !site.originalSequence) return null;
     const originalSequence = site.originalSequence;
 
-    // Prepare arrays for three rows (one element per base).
     const substitutionRow = new Array(originalSequence.length).fill(" ");
     const underlineRow = new Array(originalSequence.length).fill(" ");
     const originalRow = originalSequence.split("");
 
-    // --- Determine which codon to use based on the selected codon option ---
-    let codonForSubstitution;
-    const selectedOptionCompositeKey = selectedCodonOption[site.siteKey]; // from state
-    if (selectedOptionCompositeKey) {
-      // Group codon options similar to renderCodonOptions.
-      const groups = {};
-      site.mutations.forEach((mutation) => {
-        if (mutation.mutCodons) {
-          mutation.mutCodons.forEach((mutCodon) => {
-            const codon = mutCodon.codon;
-            let groupKey;
-            if (codon.nthCodonInRs !== undefined) {
-              groupKey = `Codon ${codon.nthCodonInRs}`;
-            } else if (mutation.mutCodonsContextStartIdx !== undefined) {
-              groupKey = `Context Start ${mutation.mutCodonsContextStartIdx}`;
-            } else {
-              groupKey = "Ungrouped";
-            }
-            if (!groups[groupKey]) {
-              groups[groupKey] = [];
-            }
-            groups[groupKey].push(codon);
-          });
-        }
-      });
-      // Flatten groups in sorted order.
-      const flatOptions = [];
-      Object.keys(groups)
-        .sort((a, b) => {
-          if (a.startsWith("Codon") && b.startsWith("Codon")) {
-            const numA = parseInt(a.replace("Codon ", ""));
-            const numB = parseInt(b.replace("Codon ", ""));
-            return numA - numB;
+    const groupsObj = {};
+    site.mutations.forEach((mutation, mIndex) => {
+      if (mutation.mutCodons) {
+        mutation.mutCodons.forEach((mutCodon) => {
+          const codon = mutCodon.codon;
+          if (codon.contextPosition === undefined) return;
+          const groupKey = `Position ${codon.contextPosition}`;
+          if (!groupsObj[groupKey]) {
+            groupsObj[groupKey] = {};
           }
-          return a.localeCompare(b);
-        })
-        .forEach((groupKey) => {
-          groups[groupKey].forEach((codon, index) => {
-            flatOptions.push({
-              compositeKey: `${groupKey}:${index}`,
-              codon: codon,
-            });
+          const seq = codon.codonSequence;
+          if (!groupsObj[groupKey][seq]) {
+            groupsObj[groupKey][seq] = { codon, mutationIndices: [mIndex] };
+          } else {
+            groupsObj[groupKey][seq].mutationIndices.push(mIndex);
+          }
+        });
+      }
+    });
+
+    // Flatten the groups into an array with headers
+    const flatOptions = [];
+    Object.keys(groupsObj)
+      .sort((a, b) => {
+        const posA = parseInt(a.replace("Position ", ""));
+        const posB = parseInt(b.replace("Position ", ""));
+        return posA - posB;
+      })
+      .forEach((groupKey) => {
+        const options = Object.values(groupsObj[groupKey]).sort((a, b) =>
+          a.codon.codonSequence.localeCompare(b.codon.codonSequence)
+        );
+        // Extract the amino acid from the first option in the group.
+        const aminoAcid = options[0]?.codon?.aminoAcid;
+        flatOptions.push({ header: groupKey, aminoAcid });
+        options.forEach((option, index) => {
+          flatOptions.push({
+            compositeKey: `${groupKey}:${index}`,
+            ...option,
+            group: groupKey,
+            optionIndex: index,
           });
         });
+      });
+
+    let codonForSubstitution;
+    const selectedOptionCompositeKey = selectedCodonOption[site.siteKey];
+    if (selectedOptionCompositeKey) {
       const selectedOption = flatOptions.find(
         (opt) => opt.compositeKey === selectedOptionCompositeKey
       );
@@ -164,7 +201,6 @@ const MutationExplorer = ({ stepSseData }) => {
         codonForSubstitution = selectedOption.codon;
       }
     }
-    // Fallback: if no selected option, use the first mutated codon.
     if (
       !codonForSubstitution &&
       selectedMutation.mutCodons &&
@@ -173,7 +209,6 @@ const MutationExplorer = ({ stepSseData }) => {
       codonForSubstitution = selectedMutation.mutCodons[0].codon;
     }
 
-    // --- Use the context position of the selected codon for substitution ---
     if (
       codonForSubstitution &&
       codonForSubstitution.contextPosition !== undefined
@@ -182,12 +217,11 @@ const MutationExplorer = ({ stepSseData }) => {
       for (let i = 0; i < 3; i++) {
         if (start + i < substitutionRow.length) {
           substitutionRow[start + i] = codonForSubstitution.codonSequence[i];
-          underlineRow[start + i] = "‾"; // Underline symbol
+          underlineRow[start + i] = "‾";
         }
       }
     }
 
-    // RS highlighting: use contextRsIndices from the mutation.
     const highlightedRow = originalRow.map((base, index) => {
       const isInRS =
         selectedMutation.contextRsIndices &&
@@ -230,90 +264,35 @@ const MutationExplorer = ({ stepSseData }) => {
             </button>
           </div>
         </div>
-
         <div className="p-2 border rounded-sm bg-gray-50 dark:bg-gray-800 dark:border-gray-700 overflow-x-auto">
-          {/* Top row: Proposed substitution (new codon) */}
           <pre className="font-mono text-lg text-green-600 dark:text-green-400 whitespace-pre">
             {substitutionRow.join("")}
           </pre>
-          {/* Middle row: Original context with RS highlighting */}
           <div className="dark:text-gray-200 select-all">{highlightedRow}</div>
-          {/* Bottom row: Underline for mutated codon */}
           <pre className="font-mono text-lg text-red-500 dark:text-red-400 whitespace-pre">
             {underlineRow.join("")}
           </pre>
-        </div>
-
-        <div className="text-xs mt-1 space-y-1">
-          <div>
-            <span className="inline-block px-1 bg-red-500 dark:bg-red-400 mr-1"></span>
-            <span className="text-gray-600 dark:text-gray-300">
-              Mutated Codon Underline
-            </span>
-          </div>
-          <div>
-            <span className="inline-block px-1 text-green-600 dark:text-green-400 font-semibold mr-1">
-              New Base
-            </span>
-            <span className="text-gray-600 dark:text-gray-300">
-              Proposed substitution (aligned above)
-            </span>
-          </div>
-          <div>
-            <span className="inline-block px-1 text-purple-600 dark:text-purple-400 font-semibold mr-1">
-              RS Region
-            </span>
-            <span className="text-gray-600 dark:text-gray-300">
-              Restriction site recognition sequence
-            </span>
-          </div>
         </div>
       </div>
     );
   };
 
-  // Render codon options grouped by codon position (nthCodonInRs)
+  // Render codon options grouped by unique codon context position
   const renderCodonOptions = (site) => {
-    // Group options by codon position: prefer nthCodonInRs; otherwise use mutCodonsContextStartIdx.
-    const groups = {};
-    site.mutations.forEach((mutation, mIndex) => {
-      if (mutation.mutCodons) {
-        mutation.mutCodons.forEach((mutCodon) => {
-          const codon = mutCodon.codon;
-          let groupKey;
-          if (codon.nthCodonInRs !== undefined) {
-            groupKey = `Codon ${codon.nthCodonInRs}`;
-          } else if (mutation.mutCodonsContextStartIdx !== undefined) {
-            groupKey = `Context Start ${mutation.mutCodonsContextStartIdx}`;
-          } else {
-            groupKey = "Ungrouped";
-          }
-          if (!groups[groupKey]) {
-            groups[groupKey] = [];
-          }
-          groups[groupKey].push({
-            mutationIndex: mIndex,
-            codon: codon,
-          });
-        });
-      }
-    });
-
-    // Flatten groups into one array while preserving headers.
+    const groupsObj = groupUniqueCodons(site);
     const flatOptions = [];
-    Object.keys(groups)
+    Object.keys(groupsObj)
       .sort((a, b) => {
-        if (a.startsWith("Codon") && b.startsWith("Codon")) {
-          const numA = parseInt(a.replace("Codon ", ""));
-          const numB = parseInt(b.replace("Codon ", ""));
-          return numA - numB;
-        }
-        return a.localeCompare(b);
+        const posA = parseInt(a.replace("Position ", ""));
+        const posB = parseInt(b.replace("Position ", ""));
+        return posA - posB;
       })
       .forEach((groupKey) => {
-        // Optionally, insert a header into the flat list.
         flatOptions.push({ header: groupKey });
-        groups[groupKey].forEach((option, index) => {
+        const options = Object.values(groupsObj[groupKey]).sort((a, b) =>
+          a.codon.codonSequence.localeCompare(b.codon.codonSequence)
+        );
+        options.forEach((option, index) => {
           flatOptions.push({
             compositeKey: `${groupKey}:${index}`,
             ...option,
@@ -322,6 +301,7 @@ const MutationExplorer = ({ stepSseData }) => {
           });
         });
       });
+    console.log("Flat Options:", flatOptions);
 
     return (
       <div className="mt-4 space-y-4">
@@ -332,7 +312,7 @@ const MutationExplorer = ({ stepSseData }) => {
                 key={`header-${option.header}`}
                 className="font-medium dark:text-gray-200"
               >
-                {option.header} Options:
+                Alternative codons for aa: {option.aminoAcid}
               </div>
             );
           } else {
@@ -378,7 +358,6 @@ const MutationExplorer = ({ stepSseData }) => {
     );
   };
 
-  // Render mutation details
   const renderMutationDetails = (mutation) => {
     if (!mutation || !mutation.mutCodons) return null;
     return (
@@ -443,14 +422,12 @@ const MutationExplorer = ({ stepSseData }) => {
   }
 
   return (
-    <div className="mt-4">
-      {/* Make the title sticky with Tailwind */}
-      <div className="sticky top-14 z-40 bg-white dark:bg-gray-900 p-2 border-b border-gray-300 dark:border-gray-700 shadow-sm">
+    <div className="mt-1">
+      <div className="sticky top-14 z-20 bg-white dark:bg-gray-900 p-2 border-b border-gray-300 dark:border-gray-700 shadow-sm">
         <h2 className="text-xl font-bold dark:text-gray-100">
           Mutation Explorer
         </h2>
       </div>
-
       <div className="mt-4 space-y-6">
         {restrictionSites.map((site, siteIndex) => {
           const selectedMutationIndex = selectedMutations[site.siteKey] || 0;
@@ -461,14 +438,12 @@ const MutationExplorer = ({ stepSseData }) => {
               key={siteIndex}
               className="p-4 border border-gray-300 dark:border-gray-700 rounded-sm shadow-xs dark:bg-gray-800"
             >
-              <h3 className="text-lg font-semibold mb-2 dark:text-gray-200">
-                Restriction Site {siteIndex + 1} ({site.siteKey})
-              </h3>
-              {/* Make the context sequence sticky with Tailwind */}
-              <div className="sticky top-28 z-20 bg-gray-50 dark:bg-gray-800 p-2 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-sm">
+              <div className="sticky top-50 z-20 bg-gray-50 dark:bg-gray-800 p-2 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-sm">
+                <h3 className="text-lg font-semibold mb-2 dark:text-gray-200">
+                  Restriction Site {siteIndex + 1} ({site.siteKey})
+                </h3>
                 {renderEnhancedContextSequence(site, selectedMutation)}
               </div>
-
               {renderCodonOptions(site)}
               {renderMutationDetails(selectedMutation)}
             </div>

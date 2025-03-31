@@ -106,9 +106,7 @@ class PrimerDesigner():
 
             mut_set_primer_pairs = []
             for coords in coords_to_process:
-                # [existing code for processing coordinates]
-                
-                # Construct MutationPrimer objects for the current combination
+                # Use the new _construct_mutation_primer_set that operates on alt_codons.
                 primer_pairs: List[MutationPrimerPair] = self._construct_mutation_primer_set(
                     mut_rs_keys=mut_rs_keys,
                     mutation_set=mut_set,
@@ -130,18 +128,27 @@ class PrimerDesigner():
             logger.log_step("Set Summary",
                             f"Total primer pairs constructed for mutation set {idx+1}: {len(mut_set_primer_pairs)}")
             
-            # Create a MutationPrimerSet object for this mutation set
+            # Create a MutationPrimerSet object for this mutation set.
             if mut_set_primer_pairs:
-                # This is the key change - wrap the list of MutationPrimerPair objects
-                # in a MutationPrimerSet object before appending to all_primers
+                # Wrap the list of MutationPrimerPair objects in a MutationPrimerSet.
                 primer_set = MutationPrimerSet(mut_primer_pairs=mut_set_primer_pairs)
+                # Save the primer pairs back to the mutation set.
                 mut_set.mut_primer_sets = mut_set_primer_pairs
                 all_primers.append(primer_set)
             
         if not all_primers:
             if self.debug:
-                logger.log_step("Design Failure", "Failed to design primers for any mutation set", level=logging.WARNING)
-            send_update(message="No valid primer sets found", prog=100, notification_count=1, callout="ERROR: No valid primer sets found for mutations.")
+                logger.log_step(
+                    "Design Failure",
+                    "Failed to design primers for any mutation set",
+                    level=logging.WARNING
+                )
+            send_update(
+                message="No valid primer sets found",
+                prog=100,
+                notification_count=1,
+                callout="ERROR: No valid primer sets found for mutations."
+            )
             return None
 
         send_update(message=f"{len(all_primers)} mutation primer sets designed successfully", prog=100)
@@ -155,7 +162,8 @@ class PrimerDesigner():
         mutation_set: MutationSet,
         selected_coords: list,
         primer_name: str = None,
-        min_binding_length: int = 10) -> list[MutationPrimerPair]:
+        min_binding_length: int = 10
+    ) -> list[MutationPrimerPair]:
         """
         Constructs forward and reverse mutation primers for each mutation in the mutation_set.
         Expects mutation_set to be a list of Mutation objects (Pydantic models) and uses their
@@ -163,19 +171,23 @@ class PrimerDesigner():
         """
         logger.log_step("Construct Primers", f"Binding length: {min_binding_length}", {"selected_coords": selected_coords})
         mutation_primers = []
-        for i, mutation in enumerate(mutation_set.mutations):
+        # Iterate in the order provided by mut_rs_keys.
+        for i, rs_key in enumerate(mut_rs_keys):
+            # Get the corresponding Mutation from the alt_codons mapping.
+            mutation = mutation_set.alt_codons[rs_key]
+            # The selected_coords list must provide one index per restriction site.
             selected_overhang = selected_coords[i]
             # Access overhang_options as a list of OverhangOption objects.
             overhang_options = mutation.overhang_options
             if selected_overhang >= len(overhang_options):
-                raise IndexError(f"Selected overhang index {selected_overhang} out of range for mutation site {i}")
+                raise IndexError(f"Selected overhang index {selected_overhang} out of range for restriction site {rs_key}")
             overhang_data: OverhangOption = overhang_options[selected_overhang]
             mutated_context = mutation.mut_context
             overhang_start = overhang_data.overhang_start_index
 
             tm_threshold = self.default_params["tm_threshold"]
 
-            # Design forward primer
+            # Design forward primer.
             f_5prime = overhang_start - 1
             f_seq_length = min_binding_length
             f_anneal = mutated_context[f_5prime:f_5prime + f_seq_length]
@@ -183,15 +195,17 @@ class PrimerDesigner():
                 f_seq_length += 1
                 f_anneal = mutated_context[f_5prime:f_5prime + f_seq_length]
 
-            logger.log_step("Forward Primer",
-                            f"Annealing region: {f_anneal[1:5]} vs expected: {overhang_data.top_overhang}")
+            logger.log_step(
+                "Forward Primer",
+                f"Annealing region: {f_anneal[1:5]} vs expected: {overhang_data.top_overhang}"
+            )
             logger.validate(
                 f_anneal[1:5].strip().upper() == overhang_data.top_overhang.strip().upper(),
                 f"Forward annealing region mismatch: got {f_anneal[1:5]}"
             )
             f_primer_seq = self.spacer + self.bsmbi_site + f_anneal
 
-            # Design reverse primer
+            # Design reverse primer.
             r_5prime = overhang_start + 5
             r_seq_length = min_binding_length
             r_anneal = mutated_context[r_5prime:r_5prime + r_seq_length]
@@ -201,8 +215,10 @@ class PrimerDesigner():
             r_anneal = self.utils.reverse_complement(r_anneal)
             r_primer_seq = self.spacer + self.bsmbi_site + r_anneal
 
-            logger.log_step("Reverse Primer",
-                            f"Annealing region: {r_anneal[1:5]} vs expected: {overhang_data.bottom_overhang}")
+            logger.log_step(
+                "Reverse Primer",
+                f"Annealing region: {r_anneal[1:5]} vs expected: {overhang_data.bottom_overhang}"
+            )
             logger.validate(
                 r_anneal[1:5].strip().upper() == overhang_data.bottom_overhang.strip().upper(),
                 f"Reverse annealing region mismatch: got {r_anneal[1:5]}"
@@ -227,8 +243,8 @@ class PrimerDesigner():
             )
 
             # For MutationPrimerPair, we need site and position.
-            # If mut_obj does not have these, use fallbacks.
-            site_val = mut_rs_keys[i]
+            # Use the current rs_key and the mutation's first_mut_idx as fallbacks.
+            site_val = rs_key
             position_val = mutation.first_mut_idx
 
             # Construct the MutationPrimerPair using the Mutation object as mutation_info.
@@ -239,11 +255,13 @@ class PrimerDesigner():
                 reverse=r_primer,
                 mutation=mutation
             )
-            logger.log_step("Primer Pair Constructed",
-                            f"Designed primer pair for site {site_val} at position {position_val}")
+            logger.log_step(
+                "Primer Pair Constructed",
+                f"Designed primer pair for site {site_val} at position {position_val}"
+            )
             mutation_primers.append(mutation_primer_pair)
             
-            # Validation: Enforce that all primer sets are in order of restriction site position (low to high)
+            # Validation: Enforce that all primer pairs are in order of restriction site position (low to high)
             sites = [mp.site for mp in mutation_primers]
             sorted_sites = sorted(sites, key=lambda k: int(k.split('_')[1]))
             logger.validate(
@@ -251,8 +269,6 @@ class PrimerDesigner():
                 f"Mutation primer positions are not in increasing order: {sites}"
             )
         return mutation_primers
-
-
 
     def generate_GG_edge_primers(
         self,

@@ -312,7 +312,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
 
       {/* Protocol Tracker Component */}
       {protocolSteps.length > 0 && (
-        <div className="border rounded-lg border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="border rounded-lg border-gray-200 dark:border-gray-700">
           <ProtocolTracker
             steps={protocolSteps}
             messages={protocolMessages}

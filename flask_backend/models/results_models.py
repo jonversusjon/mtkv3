@@ -2,17 +2,14 @@ from typing import List, Dict, Optional, Any
 
 from flask_backend.models import Mutation, Primer, RestrictionSite, MutationPrimerSet, NumpyArray, FrontendFriendly, FrontendNumpyFriendly
 
-### Results ###
 class MutationSet(FrontendNumpyFriendly):
-    mutations: List[Mutation]
+    alt_codons: Dict[str, Mutation]
     compatibility: NumpyArray
     mut_primer_sets: List[MutationPrimerSet] = []
-
 
 class MutationSetCollection(FrontendFriendly):
     rs_keys: List[str]
     sets: List[MutationSet]
-    
 
 class PCRReaction(FrontendFriendly):
     name: str
