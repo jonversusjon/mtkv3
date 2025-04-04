@@ -36,7 +36,8 @@ services:
       --directory=/app
       --pattern="*.py"
       --recursive
-      -- celery -A flask_backend.celery_worker.celery worker -l INFO -f flask_backend.log_utils.celery_logs
+      -- celery -A flask_backend.celery_worker.celery worker --concurrency=4 -l INFO -f flask_backend.log_utils.celery_logs
+
     environment:
       PYTHONPATH: /app
       FLASK_ENV: development

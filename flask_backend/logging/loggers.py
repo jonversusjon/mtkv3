@@ -3,6 +3,7 @@ import logging
 import time
 import traceback
 import json
+import csv
 from contextlib import contextmanager
 from pydantic import BaseModel
 import numpy as np
@@ -30,12 +31,21 @@ class Logger:
         self.function_logger.setLevel(self.logger.logger.level)
         # Clear any existing handlers.
         self.function_logger.handlers.clear()
-        # Create and add a dedicated file handler.
-        function_handler = logging.FileHandler(os.path.join(log_dir, "function_calls.log"), encoding="utf-8")
+        # Create a new timestamp for each instantiation
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        # Create and add a dedicated file handler with a timestamped filename
+        function_handler = logging.FileHandler(os.path.join(log_dir, f"function_calls_{timestamp}.log"), encoding="utf-8")
         function_handler.setLevel(self.logger.logger.level)
         function_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         function_handler.setFormatter(function_formatter)
         self.function_logger.addHandler(function_handler)
+
+        # Create a uniquely named CSV log for timer_context logs in the same log directory.
+        self.timer_csv_filename = os.path.join(log_dir, f"timer_logs_{timestamp}.csv")
+        os.makedirs(log_dir, exist_ok=True)
+        with open(self.timer_csv_filename, "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Operation", "Start Time", "End Time", "Elapsed Seconds"])
 
     def _setup_handlers(self, enable_file_logging, log_dir, custom_format):
         # Determine log level from an environment variable (default to INFO)
@@ -97,10 +107,31 @@ class Logger:
     @contextmanager
     def timer_context(self, operation: str, level: str = "info"):
         """
-        General-purpose timer context manager that logs start and finish messages at the specified level.
+        General-purpose timer context manager that logs start and finish messages at the specified level
+        and writes the timing details to a CSV log.
         """
-        with Logger.logged_timer_context(operation, self.logger, level=level, debug=False):
+        start_time = time.time()
+        log_func = getattr(self.logger, level.lower(), self.logger.info)
+        log_func(f"Started: {operation}")
+        try:
             yield
+        except Exception as e:
+            raise e
+        finally:
+            end_time = time.time()
+            elapsed = end_time - start_time
+            log_func(f"Finished: {operation} (elapsed: {elapsed:.4f}s)")
+            try:
+                with open(self.timer_csv_filename, "a", newline="") as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow([
+                        operation,
+                        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)),
+                        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time)),
+                        f"{elapsed:.4f}"
+                    ])
+            except Exception as csv_e:
+                self.logger.error(f"Failed to write CSV log for operation {operation}: {csv_e}")
 
     def log_function(self, func):
         """Decorator to log function entry, exit, parameters, and elapsed time to a dedicated function log file."""

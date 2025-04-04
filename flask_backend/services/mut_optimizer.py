@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Callable
 import numpy as np
 from itertools import product
 from tqdm import tqdm
@@ -8,7 +8,7 @@ from flask_backend.logging import logger
 from flask_backend.services.utils import GoldenGateUtils
 
 
-class MutationOptimizer():
+class MutationOptimizer:
     """
     MutationOptimizer Module
 
@@ -30,17 +30,14 @@ class MutationOptimizer():
         if self.verbose:
             logger.log_step("Initialization", "MutationOptimizer is running in verbose mode.")
         if self.debug:
-            logger.validate(self.compatibility_table is not None,
-                            "Compatibility table loaded successfully")
-            logger.validate(isinstance(self.compatibility_table, np.ndarray),
-                            "Compatibility table is a numpy array")
+            logger.validate(self.compatibility_table is not None, "Compatibility table loaded successfully")
+            logger.validate(isinstance(self.compatibility_table, np.ndarray), "Compatibility table is a numpy array")
 
-    
     def optimize_mutations(
         self,
-        mutation_options: Dict,
-        send_update: callable,
-        ) -> MutationSetCollection:
+        mutation_options: Dict[str, List[Mutation]],
+        send_update: Callable,
+    ) -> MutationSetCollection:
         logger.log_step("Start Optimization", "Beginning mutation optimization process.")
         
         logger.log_step("Generate Mutation Sets", "Creating all possible mutation combinations.")
@@ -54,50 +51,105 @@ class MutationOptimizer():
         return mutation_sets
 
     def generate_mutation_sets(self, mutation_options: Dict[str, List[Mutation]]) -> MutationSetCollection:
+        """
+        Generate all valid mutation sets using a generator-based approach for memory efficiency.
+        Each mutation set contains exactly one mutation option per restriction site.
+        
+        Args:
+            mutation_options: Dictionary mapping restriction site keys to lists of Mutation objects
+            
+        Returns:
+            MutationSetCollection object containing all valid mutation sets
+        """
         logger.validate(mutation_options and isinstance(mutation_options, dict),
                         f"Received {len(mutation_options)} mutation site(s)")
         logger.log_step("Generate Mutation Sets", "Generating all possible mutation combinations.")
         
         # List of all restriction site keys
         rs_keys = list(mutation_options.keys())
-        mutation_options_by_site = [mutation_options[site] for site in rs_keys]
 
         mutation_set_collection = MutationSetCollection(
             rs_keys=rs_keys,
             sets=[]
         )
         
-        valid_mutation_sets = []
+        if not rs_keys:
+            logger.log_step("Generate Mutation Sets", "No restriction sites to process.")
+            return mutation_set_collection
         
-        # Iterate over each candidate tuple in the Cartesian product.
-        for mutation_tuple in tqdm(product(*mutation_options_by_site), desc="Processing Mutation Sets", unit="set"):
-            # Build a complete candidate mapping: one mutation per rsKey.
-            candidate_dict = {rs_keys[i]: mutation for i, mutation in enumerate(mutation_tuple)}
+        valid_mutation_sets = []
+        processed_count = 0
+        valid_count = 0
+        
+        # Define a recursive generator function to build mutation sets efficiently
+        def generate_sets(index=0, current_dict=None, current_mutation_list=None):
+            nonlocal processed_count
             
-            # Prepare data for compatibility matrix computation.
-            # This remains similar to before—each mutation's overhang options are extracted.
-            mutation_set_dict = [
-                {"overhangs": {"overhang_options": mutation.overhang_options}} 
-                for mutation in mutation_tuple
-            ]
-            
-            # Compute the compatibility matrix.
-            matrix = self.create_compatibility_matrix(mutation_set_dict)
-            
-            # Only add the mutation set if the matrix has at least one valid (1) entry.
-            if np.any(matrix == 1):
-                valid_mutation_sets.append(
-                    MutationSet(
-                        alt_codons=candidate_dict,  # now using the new field name
+            if current_dict is None:
+                current_dict = {}
+            if current_mutation_list is None:
+                current_mutation_list = []
+                
+            # If we've added a mutation for every restriction site, yield the completed set
+            if index >= len(rs_keys):
+                processed_count += 1
+                
+                # Create a mutation set dictionary for compatibility matrix computation
+                mutation_set_dict = [
+                    {"overhangs": {"overhang_options": mutation.overhang_options}} 
+                    for mutation in current_mutation_list
+                ]
+                
+                # Compute compatibility matrix
+                matrix = self.create_compatibility_matrix(mutation_set_dict)
+                
+                # Only yield valid mutation sets
+                if np.any(matrix == 1):
+                    yield MutationSet(
+                        alt_codons=current_dict.copy(),  # create a copy to avoid reference issues
                         compatibility=matrix.tolist(),
                         mut_primer_sets=[]
                     )
-                )
+                return
+            
+            # Get the current restriction site key
+            key = rs_keys[index]
+            
+            # For each mutation option for this restriction site
+            for mutation in mutation_options[key]:
+                # Add this mutation to our current set
+                next_dict = current_dict.copy()
+                next_dict[key] = mutation
+                next_list = current_mutation_list.copy()
+                next_list.append(mutation)
+                
+                # Recursively generate sets with this mutation added
+                yield from generate_sets(index + 1, next_dict, next_list)
+        
+        # Use the progress bar for overall progress tracking
+        total_combinations = 1
+        for key in rs_keys:
+            total_combinations *= len(mutation_options[key])
+            
+        with tqdm(total=total_combinations, desc="Processing Mutation Sets", unit="set") as pbar:
+            # Collect all valid mutation sets
+            for valid_set in generate_sets():
+                valid_mutation_sets.append(valid_set)
+                valid_count += 1
+                
+                # Update progress bar periodically
+                if valid_count % 100 == 0 or processed_count % 1000 == 0:
+                    pbar.update(min(1000, processed_count - pbar.n))
+                    
+            # Ensure progress bar is completed
+            pbar.update(total_combinations - pbar.n)
         
         mutation_set_collection.sets = valid_mutation_sets
         
+        logger.log_step("Generate Mutation Sets", 
+                        f"Processed {processed_count} combinations, found {valid_count} valid mutation sets")
+        
         return mutation_set_collection
-
 
     def create_compatibility_matrix(self, mutation_set: list) -> np.ndarray:
         """

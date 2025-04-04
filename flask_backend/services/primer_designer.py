@@ -68,7 +68,7 @@ class PrimerDesigner():
                         "Starting primer design process",
                         {"mutation_sets": mutation_sets, "primer_name": primer_name, "max_results": max_results_str})
         
-        with logger.timer("Precompute Restriction Sites and Valid Coordinates"):
+        with logger.timer_context("Precompute Restriction Sites and Valid Coordinates"):
             # Calculate number of restriction sites.
             num_restriction_sites = len(mutation_sets.rs_keys)
             # Precompute total valid coordinates across all mutation sets.
@@ -80,10 +80,10 @@ class PrimerDesigner():
             total_sets = len(mutation_sets.sets)
         
         for idx, mut_set in enumerate(mutation_sets.sets):
-            with logger.timer(f"Process Mutation Set {idx+1}"):
+            with logger.timer_context(f"Process Mutation Set {idx+1}"):
                 comp_matrix = mut_set.compatibility
 
-                with logger.timer("Coordinate Validation"):
+                with logger.timer_context("Coordinate Validation"):
                     valid_coords = np.argwhere(comp_matrix == 1)
                     logger.validate(
                         valid_coords.size > 0,
@@ -96,7 +96,7 @@ class PrimerDesigner():
                                     f"Compatibility matrix for set {idx+1}",
                                     logger.visualize_matrix(comp_matrix))
 
-                with logger.timer("Coordinate Selection"):
+                with logger.timer_context("Coordinate Selection"):
                     if max_results == 0:
                         coords_to_process = valid_coords.tolist()
                         logger.log_step("Processing All Coordinates",
@@ -110,7 +110,7 @@ class PrimerDesigner():
 
                 mut_set_primer_pairs = []
                 for coords in coords_to_process:
-                    with logger.timer(f"Construct Primer Set for coords {coords}"):
+                    with logger.timer_context(f"Construct Primer Set for coords {coords}"):
                         primer_pairs: List[MutationPrimerPair] = self._construct_mutation_primer_set(
                             mut_rs_keys=mut_rs_keys,
                             mutation_set=mut_set,
@@ -183,7 +183,7 @@ class PrimerDesigner():
         mutation_primers = []
         # Iterate in the order provided by mut_rs_keys.
         for i, rs_key in enumerate(mut_rs_keys):
-            with logger.timer(f"Process Restriction Site {rs_key}"):
+            with logger.timer_context(f"Process Restriction Site {rs_key}"):
                 mutation = mutation_set.alt_codons[rs_key]
                 selected_overhang = selected_coords[i]
                 overhang_options = mutation.overhang_options
@@ -195,7 +195,7 @@ class PrimerDesigner():
 
                 tm_threshold = self.default_params["tm_threshold"]
 
-                with logger.timer("Design Forward Primer"):
+                with logger.timer_context("Design Forward Primer"):
                     f_5prime = overhang_start - 1
                     f_seq_length = min_binding_length
                     f_anneal = mutated_context[f_5prime:f_5prime + f_seq_length]
@@ -211,7 +211,7 @@ class PrimerDesigner():
                     )
                     f_primer_seq = self.spacer + self.bsmbi_site + f_anneal
 
-                with logger.timer("Design Reverse Primer"):
+                with logger.timer_context("Design Reverse Primer"):
                     r_5prime = overhang_start + 5
                     r_seq_length = min_binding_length
                     r_anneal = mutated_context[r_5prime:r_5prime + r_seq_length]
@@ -228,7 +228,7 @@ class PrimerDesigner():
                         f"Reverse annealing region mismatch: got {r_anneal[1:5]}"
                     )
 
-                with logger.timer("Construct Primer Pair"):
+                with logger.timer_context("Construct Primer Pair"):
                     f_primer = Primer(
                         name=(primer_name + "_forward") if primer_name else f"primer_{i}_forward",
                         sequence=f_primer_seq,

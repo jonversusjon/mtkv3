@@ -18,6 +18,6 @@
     },
     "css.lint.unknownAtRules": "ignore",
     "scss.lint.unknownAtRules": "ignore",
-    "less.lint.unknownAtRules": "ignore"
+    "less.lint.unknownAtRules": "ignore",
+    "chat.agent.enabled": true
   }
-  

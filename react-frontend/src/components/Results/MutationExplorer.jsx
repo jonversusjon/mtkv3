@@ -119,23 +119,23 @@ const MutationExplorer = ({ stepSseData }) => {
   };
 
   // Get the mutated sequence with mutations applied
-  const getMutatedSequence = (originalSequence, mutation) => {
-    if (!mutation || !mutation.mutCodons || !originalSequence)
-      return originalSequence;
+  // const getMutatedSequence = (originalSequence, mutation) => {
+  //   if (!mutation || !mutation.mutCodons || !originalSequence)
+  //     return originalSequence;
 
-    let mutatedSeq = originalSequence;
-    mutation.mutCodons.forEach((mutCodon) => {
-      const codon = mutCodon.codon;
-      if (codon && codon.contextPosition !== undefined) {
-        const pos = codon.contextPosition;
-        mutatedSeq =
-          mutatedSeq.substring(0, pos) +
-          codon.codonSequence +
-          mutatedSeq.substring(pos + 3);
-      }
-    });
-    return mutatedSeq;
-  };
+  //   let mutatedSeq = originalSequence;
+  //   mutation.mutCodons.forEach((mutCodon) => {
+  //     const codon = mutCodon.codon;
+  //     if (codon && codon.contextPosition !== undefined) {
+  //       const pos = codon.contextPosition;
+  //       mutatedSeq =
+  //         mutatedSeq.substring(0, pos) +
+  //         codon.codonSequence +
+  //         mutatedSeq.substring(pos + 3);
+  //     }
+  //   });
+  //   return mutatedSeq;
+  // };
 
   // Render the context sequence with aligned codon substitution visualization
   const renderEnhancedContextSequence = (site, selectedMutation) => {
@@ -240,10 +240,9 @@ const MutationExplorer = ({ stepSseData }) => {
 
     const originalId = `original-${site.siteKey}`;
     const mutatedId = `mutated-${site.siteKey}`;
-    const mutatedSequence = getMutatedSequence(
-      originalSequence,
-      selectedMutation
-    );
+    const mutatedSequence = originalRow
+      .map((char, i) => substitutionRow[i] !== " " ? substitutionRow[i] : char)
+      .join("");
 
     return (
       <div className="mb-3">

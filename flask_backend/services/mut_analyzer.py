@@ -1,5 +1,3 @@
-import itertools
-import math
 import logging
 from typing import Dict, List
 
@@ -63,9 +61,8 @@ class MutationAnalyzer():
                 )
                 alt_counts.append(count)
             if alt_counts:
-                # (each codon can be unchanged or one of its valid alternatives) minus the “no-change” case
-                site_estimate = math.prod([c + 1 for c in alt_counts]) - 1
-                total += site_estimate
+                # Now treat each site as a single unit with multiple options
+                total += sum(alt_counts)
         return total
 
     def get_all_mutations(
@@ -155,97 +152,87 @@ class MutationAnalyzer():
                     if alternatives:
                         alternatives_by_codon.append((codon_idx, alternatives))
                 
-                # Generate combinations over the codons with valid alternatives.
+                # Generate site-level mutations treating each alternative as a separate mutation option
+                # rather than generating combinations of codon changes
                 combination_count = 0
                 valid_mutation_count = 0
                 
                 if alternatives_by_codon:
-                    # Consider combinations of one or more codons.
-                    for r in range(1, len(alternatives_by_codon) + 1):
-                        for subset in itertools.combinations(alternatives_by_codon, r):
-                            # Extract the alternatives lists for the selected codons.
-                            alternatives_lists = [entry[1] for entry in subset]
+                    # Process each codon position's alternatives as independent mutation options for the site
+                    for codon_idx, alternatives in alternatives_by_codon:
+                        for alternative in alternatives:
+                            combination_count += 1
                             
-                            for combination in itertools.product(*alternatives_lists):
-                                combination_count += 1
-                                
-                                # Update progress periodically during combination processing
-                                if combination_count % 10 == 0:
-                                    update_progress(f"Processing combinations for site {site.position}", 10,
-                                                rs_key=rs_key, combinations_processed=combination_count)
-                                
-                                mutation_codons = [item['mutation_codon'] for item in combination]
-                                combined_mut_indices_codon = sorted([idx for item in combination for idx in item['muts']])
-                                
-                                # Enforce the global max_mutations per restriction site.
-                                if len(combined_mut_indices_codon) > self.max_mutations:
-                                    continue
+                            # Treat each alternative as a single mutation
+                            mutation_codons = [alternative['mutation_codon']]
+                            combined_mut_indices_codon = alternative['muts']
+                            combined_mut_indices_rs = alternative['mutations_in_rs']
+                            
+                            # Enforce the global max_mutations per restriction site.
+                            if len(combined_mut_indices_codon) > self.max_mutations:
+                                continue
 
-                                combined_mut_indices_rs = sorted([idx for item in combination for idx in item['mutations_in_rs']])
-                                
-                                # Prepare mutation details for combining the context.
-                                mutations_info = []
-                                for item in combination:
-                                    mutations_info.append({
-                                        'codon_context_position': item['context_position'],
-                                        'new_codon_sequence': item['mutation_codon'].codon.codon_sequence,
-                                        'muts': item['muts']
-                                    })
-                                
-                                # Use helper to combine mutations into a single mutated context.
-                                mutated_context, first_mut, last_mut = self._get_combined_mutated_context(
-                                    context_sequence=site.context_seq,
-                                    mutations_info=mutations_info
-                                )
-                                logger.log_step("Mutated Context",
-                                                f"Calculated combined mutated context with first mutation index {first_mut} and last mutation index {last_mut}")
-                                
-                                # Calculate sticky end options.
-                                overhang_options_raw = self._calculate_sticky_ends_with_context(mutated_context, first_mut, last_mut)
-                                overhang_options = []
-                                if isinstance(overhang_options_raw, dict):
-                                    for pos_key, pos_options in overhang_options_raw.items():
-                                        top_options = pos_options.get("top_strand", [])
-                                        bottom_options = pos_options.get("bottom_strand", [])
-                                        for top_option, bottom_option in zip(top_options, bottom_options):
-                                            mapped_option = {
-                                                "top_overhang": top_option.get("seq", ""),
-                                                "bottom_overhang": bottom_option.get("seq", ""),
-                                                "overhang_start_index": top_option.get("overhang_start_index")
-                                            }
-                                            if mapped_option["overhang_start_index"] is None:
-                                                raise ValueError("overhang_start_index is missing in the overhang option")
-                                            overhang_options.append(OverhangOption(**mapped_option))
-                                elif isinstance(overhang_options_raw, list):
-                                    overhang_options = overhang_options_raw
-                                else:
-                                    raise ValueError("Unexpected type returned for overhang options.")
-                                
-                                valid_mutation = Mutation(
-                                    mut_codons=mutation_codons,
-                                    mut_codons_context_start_idx=item['context_position'],
-                                    mut_indices_rs=combined_mut_indices_rs,
-                                    mut_indices_codon=combined_mut_indices_codon,
-                                    mut_context=mutated_context,
-                                    native_context=site.context_seq,
-                                    first_mut_idx=first_mut,
-                                    last_mut_idx=last_mut,
-                                    overhang_options=overhang_options,
-                                    context_rs_indices=site.context_rs_indices,
-                                    recognition_seq=site.recognition_seq,
-                                    enzyme=site.enzyme
-                                )
-                                valid_mutations.append(valid_mutation)
-                                valid_mutation_count += 1
-                                
-                                # Update progress for each valid mutation generated
-                                if valid_mutation_count % 5 == 0:
-                                    update_progress(f"Generated {valid_mutation_count} valid mutations for site {site.position}", 5,
-                                                rs_key=rs_key)
-                                
-                                logger.log_step("Valid Mutation",
-                                            f"Added valid mutation for site {site.position}",
-                                            {"mutation_codons": [mc.nth_codon_in_rs for mc in mutation_codons]})
+                            # Prepare mutation details for combining the context.
+                            mutations_info = [{
+                                'codon_context_position': alternative['context_position'],
+                                'new_codon_sequence': alternative['mutation_codon'].codon.codon_sequence,
+                                'muts': alternative['muts']
+                            }]
+                            
+                            # Use helper to get mutated context.
+                            mutated_context, first_mut, last_mut = self._get_combined_mutated_context(
+                                context_sequence=site.context_seq,
+                                mutations_info=mutations_info
+                            )
+                            logger.log_step("Mutated Context",
+                                            f"Calculated mutated context with first mutation index {first_mut} and last mutation index {last_mut}")
+                            
+                            # Calculate sticky end options.
+                            overhang_options_raw = self._calculate_sticky_ends_with_context(mutated_context, first_mut, last_mut)
+                            overhang_options = []
+                            if isinstance(overhang_options_raw, dict):
+                                for pos_key, pos_options in overhang_options_raw.items():
+                                    top_options = pos_options.get("top_strand", [])
+                                    bottom_options = pos_options.get("bottom_strand", [])
+                                    for top_option, bottom_option in zip(top_options, bottom_options):
+                                        mapped_option = {
+                                            "top_overhang": top_option.get("seq", ""),
+                                            "bottom_overhang": bottom_option.get("seq", ""),
+                                            "overhang_start_index": top_option.get("overhang_start_index")
+                                        }
+                                        if mapped_option["overhang_start_index"] is None:
+                                            raise ValueError("overhang_start_index is missing in the overhang option")
+                                        overhang_options.append(OverhangOption(**mapped_option))
+                            elif isinstance(overhang_options_raw, list):
+                                overhang_options = overhang_options_raw
+                            else:
+                                raise ValueError("Unexpected type returned for overhang options.")
+                            
+                            valid_mutation = Mutation(
+                                mut_codons=mutation_codons,
+                                mut_codons_context_start_idx=alternative['context_position'],
+                                mut_indices_rs=combined_mut_indices_rs,
+                                mut_indices_codon=combined_mut_indices_codon,
+                                mut_context=mutated_context,
+                                native_context=site.context_seq,
+                                first_mut_idx=first_mut,
+                                last_mut_idx=last_mut,
+                                overhang_options=overhang_options,
+                                context_rs_indices=site.context_rs_indices,
+                                recognition_seq=site.recognition_seq,
+                                enzyme=site.enzyme
+                            )
+                            valid_mutations.append(valid_mutation)
+                            valid_mutation_count += 1
+                            
+                            # Update progress for each valid mutation generated
+                            if valid_mutation_count % 5 == 0:
+                                update_progress(f"Generated {valid_mutation_count} valid mutations for site {site.position}", 5,
+                                            rs_key=rs_key)
+                            
+                            logger.log_step("Valid Mutation",
+                                        f"Added valid mutation for site {site.position}",
+                                        {"mutation_codons": [mc.nth_codon_in_rs for mc in mutation_codons]})
                 
                 # Update progress for completing site processing
                 if valid_mutations:
