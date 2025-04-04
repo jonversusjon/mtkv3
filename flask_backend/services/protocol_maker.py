@@ -55,7 +55,12 @@ class ProtocolMaker():
             verbose=verbose, debug=True)
         self.primer_designer = PrimerDesigner(
             kozak=kozak, verbose=verbose, debug=True)
-        self.reaction_organizer = ReactionOrganizer()
+        self.reaction_organizer = ReactionOrganizer(
+            seq_to_dom=sequence_to_domesticate,
+            utils=self.utils,
+            verbose=verbose,
+            debug=True)
+        
         logger.debug(f"Protocol maker for sequence {request_idx+1} initialized with codon_usage_dict: {codon_usage_dict}")
         if verbose:
             logger.log_step("Verbose Mode", "Protocol maker is running in verbose mode.")

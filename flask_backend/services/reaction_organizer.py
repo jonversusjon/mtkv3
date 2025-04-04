@@ -1,29 +1,26 @@
 # services/reactions.py
 
-from typing import List
+from typing import List, Any
 
 from flask_backend.logging import logger
 from flask_backend.models import DomesticationResult, Primer, MutationPrimerSet, PCRReaction
 
 class ReactionOrganizer():
     """
+    
     Organizes mutation primer sets into PCR reactions.
     """
+    def __init__(self, seq_to_dom: str, utils: Any, verbose: bool = False, debug: bool = False):
+        self.seq_to_dom = seq_to_dom
+        self.verbose = verbose
+        self.debug = debug
 
-    def calculate_amplicon_size(self, forward_primer: Primer, reverse_primer: Primer) -> int:
-        """
-        Calculate the amplicon size based on primer positions.
-        This is a placeholder - replace with actual implementation.
-        """
-        # In a real implementation, you would calculate this based on 
-        # the positions of the primers on the template
-        return 500  # Placeholder value
 
     def create_pcr_reaction(self, name: str, forward_primer: Primer, reverse_primer: Primer) -> PCRReaction:
         """
         Create a PCRReaction object with all required fields.
         """
-        amplicon_size = self.calculate_amplicon_size(forward_primer, reverse_primer)
+        amplicon_size = self.utils.calculate_amplicon_size(forward_primer.sequence, reverse_primer.sequence, self.seq_to_dom)
         
         return PCRReaction(
             name=name,

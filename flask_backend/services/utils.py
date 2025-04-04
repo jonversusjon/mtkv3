@@ -460,3 +460,13 @@ class GoldenGateUtils():
 
         logger.log_step("", "\nRestriction Site Analysis Summary:")
         logger.log_step("", f"\n{table}")
+        
+        
+    def calculate_amplicon_size(self, forward_primer_seq: str, reverse_primer_seq: str, sequence: str) -> int:
+        """
+        Calculate the amplicon size based on primer positions.
+        This is a placeholder - replace with actual implementation.
+        """
+        # In a real implementation, you would calculate this based on 
+        # the positions of the primers on the template
+        return 500  # Placeholder value

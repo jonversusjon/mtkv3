@@ -35,6 +35,7 @@ class MutationOptimizer():
             logger.validate(isinstance(self.compatibility_table, np.ndarray),
                             "Compatibility table is a numpy array")
 
+    
     def optimize_mutations(
         self,
         mutation_options: Dict,

@@ -50,16 +50,15 @@ const TabButton = ({
         isActive
           ? "active border-b-2 border-blue-500 font-bold"
           : "border-b border-transparent"
-      }`}
+      } 
+      hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150`}  // <-- Added hover styling
     onClick={onClick}
   >
     {notificationCount > 0 ? (
-      // Notification bubble for notification count
       <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold rounded-full bg-red-500 text-white">
         {notificationCount}
       </span>
     ) : stepProgress > 0 && stepProgress < 100 ? (
-      // Spinner while processing
       <div className="animate-spin h-4 w-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle
@@ -78,7 +77,6 @@ const TabButton = ({
         </svg>
       </div>
     ) : status === "completed" || stepProgress === 100 ? (
-      // Green checkmark icon
       <div className="text-green-500 flex items-center justify-center w-5 h-5">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -94,12 +92,12 @@ const TabButton = ({
         </svg>
       </div>
     ) : (
-      // Empty placeholder when no notifications or not completed
       <div className="checkmark-placeholder w-5 h-5"></div>
     )}
     <span className="tab-label">{name}</span>
   </button>
 );
+
 
 const DisplayMessage = ({ message, timestamp }) => (
   <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 mb-4">
