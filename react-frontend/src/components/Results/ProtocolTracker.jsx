@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import RestrictionSiteSummary from "./RestrictionSiteSummary";
 import MutationExplorer from "./MutationExplorer";
+import PrimerExplorer from "./PrimerExplorer";
 
 // UI Helper Components
 const ProgressStep = ({ name, stepProgress, message }) => {
@@ -51,7 +52,7 @@ const TabButton = ({
           ? "active border-b-2 border-blue-500 font-bold"
           : "border-b border-transparent"
       } 
-      hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150`}  // <-- Added hover styling
+      hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150`} // <-- Added hover styling
     onClick={onClick}
   >
     {notificationCount > 0 ? (
@@ -97,7 +98,6 @@ const TabButton = ({
     <span className="tab-label">{name}</span>
   </button>
 );
-
 
 const DisplayMessage = ({ message, timestamp }) => (
   <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 mb-4">
@@ -200,7 +200,9 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
           />
         );
       case "Primer Design":
-        if (
+        if (stepSseData.primers) {
+          return <PrimerExplorer stepSseData={stepSseData} />;
+        } else if (
           (stepSseData.edgePrimers &&
             Object.keys(stepSseData.edgePrimers).length > 0) ||
           (stepSseData.mutPrimers &&
