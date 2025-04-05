@@ -97,16 +97,6 @@ def process_protocol_sequence(req_dict: dict, index: int):
     progress_callback = partial(publish_sse, job_id=req.job_id, sequence_idx=index)
     if(index == 1):
         logger.log_step("SSE Publish", f"Setting up task for channel 1 job_{req.job_id}_{index}: {json.dumps({'jobId': req.job_id, 'sequenceIdx': index, 'step': 'start', 'message': 'Starting protocol generation'})}")
-    # # Log all variables sent to ProtocolMaker
-    # logger.log_step("ProtocolMaker Input", f"Request Index: {index}")
-    # logger.log_step("ProtocolMaker Input", f"Sequence to Domesticate: {seq}")
-    # logger.log_step("ProtocolMaker Input", f"Codon Usage Dict: {GoldenGateUtils().get_codon_usage_dict(req.species)}")
-    logger.log_step("ProtocolMaker Input", f"Max Mutations: {req.max_mut_per_site}")
-    # logger.log_step("ProtocolMaker Input", f"Template Sequence: {req.template_sequence}")
-    # logger.log_step("ProtocolMaker Input", f"Kozak: {req.kozak}")
-    # logger.log_step("ProtocolMaker Input", f"Max Results: {req.max_results}")
-    # logger.log_step("ProtocolMaker Input", f"Verbose Mode: {req.verbose_mode}")
-    # logger.log_step("ProtocolMaker Input", f"Job ID: {req.job_id}_{index}")
 
     protocol_maker = ProtocolMaker(
         request_idx=index,
