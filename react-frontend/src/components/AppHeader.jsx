@@ -1,11 +1,4 @@
-import React, { useEffect } from "react";
-
-function AppHeader({ darkMode, toggleDarkMode }) {
-  // Debug log to verify darkMode state changes
-  useEffect(() => {
-    console.log("Dark mode state in AppHeader:", darkMode);
-  }, [darkMode]);
-
+function AppHeader({ darkMode }) {
   return (
     <header className="fixed top-0 left-0 z-600 box-border flex justify-between items-center w-full h-24 px-6 shadow-sm text-white bg-gradient-to-r from-indigo-900 from-10% via-gray-950 via-50% to-blue-900 to-90%">
       <div className="flex items-center gap-3">
@@ -16,16 +9,10 @@ function AppHeader({ darkMode, toggleDarkMode }) {
           bg-white hover:bg-gray-100
           dark:bg-gray-800 dark:hover:bg-gray-700
           shadow-md hover:shadow-lg"
-          onClick={() => {
-            console.log("Toggle button clicked, current state:", darkMode);
-            toggleDarkMode();
-          }}
           aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
           type="button"
         >
-          <span className="text-lg">
-            {darkMode ? "☀️" : "🌙"}
-          </span>
+          <span className="text-lg">{darkMode ? "☀️" : "🌙"}</span>
           <span className="font-medium text-sm hidden sm:inline">
             {darkMode ? "Light Mode" : "Dark Mode"}
           </span>

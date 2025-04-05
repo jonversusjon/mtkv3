@@ -10,11 +10,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
       `sseEvents_${jobId}_${sequenceIdx}`
     );
     try {
-      console.log(
-        `[ResultTab:${sequenceIdx}] Initial load from sessionStorage: ${
-          savedEvents ? savedEvents.length + " chars" : "null"
-        }`
-      );
+      // Parse the saved events from sessionStorage
       return savedEvents ? JSON.parse(savedEvents) : [];
     } catch (e) {
       console.error(
@@ -26,7 +22,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
   });
 
   // Protocol Tracker State
-  const [protocolSteps, setProtocolSteps] = useState([]);
+  const [protocolSteps, _setProtocolSteps] = useState([]);
   const [protocolMessages, setProtocolMessages] = useState([]);
   const [protocolCallouts, setProtocolCallouts] = useState([]);
   const [protocolSseData, setProtocolSseData] = useState({});
@@ -48,13 +44,6 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
 
   // --- Process SSE data into Protocol Tracker format ---
   useEffect(() => {
-    console.log(
-      `[ResultTab:${sequenceIdx}] Processing ${rawSseEvents.length} events for protocol data`
-    );
-    if (rawSseEvents.length > 0) {
-      console.log("Sample event structure:", rawSseEvents[0]);
-    }
-
     // Define expected protocol steps
     const expectedSteps = [
       "Preprocessing",
@@ -192,31 +181,15 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
       }
     });
 
-    // Update protocol data state
-    setProtocolSteps(steps);
-    console.log(
-      "STEPS DATA FOR PROTOCOL TRACKER:",
-      JSON.stringify(steps, null, 2)
-    );
-
     setProtocolMessages(messages);
     setProtocolCallouts(callouts);
     setProtocolSseData(sseData);
-
-    console.log(`[ResultTab:${sequenceIdx}] Protocol data processed:`, {
-      steps: steps.length,
-      messages: messages.length,
-      sseDataKeys: Object.keys(sseData),
-    });
   }, [rawSseEvents, sequenceIdx]);
 
   // --- Callback for useSSE ---
   const processSseEvent = useCallback(
     (eventData) => {
-      console.log(
-        `[ResultTab:${sequenceIdx}] processSseEvent ENTERED. Data received:`,
-        eventData
-      );
+
 
       if (!eventData || typeof eventData !== "object") {
         console.warn(
@@ -226,9 +199,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
       }
       if (!hasReceivedData.current) {
         hasReceivedData.current = true;
-        console.log(
-          `[ResultTab:${sequenceIdx}] processSseEvent: Set hasReceivedData = true.`
-        );
+
       }
       if (
         eventData.sequenceIdx !== undefined &&
@@ -258,9 +229,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
           );
           return prevEvents;
         }
-        console.log(
-          `[ResultTab:${sequenceIdx}] processSseEvent: Updating state with event timestamp: ${eventToStore.clientTimestamp}`
-        );
+
         const updatedEvents = [...prevEvents, eventToStore];
         updatedEvents.sort(
           (a, b) => Number(a.clientTimestamp) - Number(b.clientTimestamp)
@@ -288,12 +257,9 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
   // --- Mount/Unmount Effect ---
   useEffect(() => {
     isMounted.current = true;
-    console.log(
-      `[ResultTab:${sequenceIdx}] Component Did Mount. Initial state length: ${rawSseEvents.length}`
-    );
+
     return () => {
       isMounted.current = false;
-      console.log(`[ResultTab:${sequenceIdx}] Component Will Unmount.`);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sequenceIdx]);

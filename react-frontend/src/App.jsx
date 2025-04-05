@@ -29,7 +29,6 @@ function App() {
                     showSettings={showSettings}
                     setShowSettings={setShowSettings}
                     setResults={(newResults) => {
-                      console.log("Setting new results:", newResults);
                       setResults(newResults);
                     }}
                   />

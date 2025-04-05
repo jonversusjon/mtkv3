@@ -49,10 +49,6 @@ const ResultTabs = ({ jobId }) => {
     }
   }, [sequences, activeTab]);
 
-  // Add debug logging for state changes
-  useEffect(() => {
-    console.log("Active tab changed to:", activeTab);
-  }, [activeTab]);
 
   // Display a loading message or placeholder if sequences haven't loaded yet
   if (sequences.length === 0) {
@@ -87,7 +83,6 @@ const ResultTabs = ({ jobId }) => {
                       : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:border-gray-600"
                   }`}
                 onClick={() => {
-                  console.log("Setting activeTab to:", index);
                   setActiveTab(index);
                 }}
                 aria-selected={isActive}

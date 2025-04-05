@@ -1,25 +1,25 @@
 // ResultsPage.jsx
 import React, { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import ResultTabs from "../components/Results/ResultTabs"; // [cite: uploaded:src/components/Results/ResultTabs.jsx]
+import ResultTabs from "../components/Results/ResultTabs";
 
 function ResultsPage({ results }) {
-  const navigate = useNavigate(); // [cite: uploaded:src/pages/ResultsPage.jsx]
+  const navigate = useNavigate();
   // Get the jobId from sessionStorage
   const jobId = useMemo(() => sessionStorage.getItem("jobId"), []); // Memoize jobId retrieval [cite: uploaded:src/pages/ResultsPage.jsx]
 
   // Build placeholder sequences from stored form data if no results prop is provided.
-  const placeholders = useMemo(() => { // [cite: uploaded:src/pages/ResultsPage.jsx]
+  const placeholders = useMemo(() => {
     // Only run if results prop is null/undefined
     if (results) return null;
 
-    const savedFormData = sessionStorage.getItem("formData"); // [cite: uploaded:src/pages/ResultsPage.jsx]
+    const savedFormData = sessionStorage.getItem("formData");
     if (savedFormData) {
       try {
-        const parsed = JSON.parse(savedFormData); // [cite: uploaded:src/pages/ResultsPage.jsx]
+        const parsed = JSON.parse(savedFormData);
         // Ensure sequencesToDomesticate exists and is an array
         if (Array.isArray(parsed?.sequencesToDomesticate)) {
-          return parsed.sequencesToDomesticate.map((seq, i) => ({ // [cite: uploaded:src/pages/ResultsPage.jsx]
+          return parsed.sequencesToDomesticate.map((seq, i) => ({
             id: i, // Use index as sequenceIdx
             placeholder: true, // Mark as placeholder
             sequence: seq.sequence || "", // Default to empty string if missing
@@ -27,21 +27,21 @@ function ResultsPage({ results }) {
           }));
         }
       } catch (error) {
-        console.error("Error parsing placeholders from sessionStorage:", error); // [cite: uploaded:src/pages/ResultsPage.jsx]
+        console.error("Error parsing placeholders from sessionStorage:", error);
       }
     }
     return []; // Return empty array if no data or error
   }, [results]); // Dependency on 'results' prop
 
   // Determine the data source: passed results or generated placeholders
-  const dataToDisplay = results || placeholders; // [cite: uploaded:src/pages/ResultsPage.jsx]
+  const dataToDisplay = results || placeholders;
 
   // Redirect to form if there's no jobId or no data to display
-  useEffect(() => { // [cite: uploaded:src/pages/ResultsPage.jsx]
+  useEffect(() => {
     // Redirect if no jobId OR if dataToDisplay is empty/null
     if (!jobId || !dataToDisplay || dataToDisplay.length === 0) {
-      console.log("No Job ID or data found — redirecting to form"); // [cite: uploaded:src/pages/ResultsPage.jsx]
-      navigate("/"); // [cite: uploaded:src/pages/ResultsPage.jsx]
+      console.log("No Job ID or data found — redirecting to form");
+      navigate("/");
     }
   }, [dataToDisplay, jobId, navigate]); // Dependencies include jobId now
 
@@ -49,7 +49,7 @@ function ResultsPage({ results }) {
   return (
     // Use Tailwind for container styling (padding, etc.)
     // Match padding/max-width with App.jsx container if needed, or keep specific styles for results
-    <div className="pt-4 pb-16"> {/* Added padding top/bottom */}
+    <div className="pt-4 pb-16">
       {jobId && dataToDisplay?.length ? ( // Check for jobId and data before rendering tabs
         // Pass jobId to ResultTabs, which will pass it down to ResultTab [cite: uploaded:src/components/Results/ResultTabs.jsx]
         // ResultTabs internally loads sequences from sessionStorage based on formData
