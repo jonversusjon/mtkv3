@@ -197,6 +197,7 @@ class PrimerDesigner:
                 message="No valid primer sets found",
                 prog=100,
                 notification_count=1,
+                notificaation_type="error",
                 callout="ERROR: No valid primer sets found for mutations.",
             )
             return None

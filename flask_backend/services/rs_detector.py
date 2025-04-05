@@ -87,7 +87,13 @@ class RestrictionSiteDetector():
         logger.log_step("Result", f"Total sites found: {len(restriction_sites)}")
                 
         if restriction_sites:
-            send_update(message=f"Found {len(restriction_sites)} restriction sites", prog=100, restriction_sites=restriction_sites, notification_count=len(restriction_sites))
+            send_update(
+                message=f"Found {len(restriction_sites)} restriction sites",
+                prog=100,
+                restriction_sites=restriction_sites,
+                notification_count=len(restriction_sites),
+                notification_type="info"
+                )
         else:
             send_update(message="No restriction sites found", prog=100, restriction_sites=restriction_sites, callout="No site mutations needed", notification_count=0)
                     

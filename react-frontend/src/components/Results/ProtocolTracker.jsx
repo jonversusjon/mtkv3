@@ -42,6 +42,7 @@ const TabButton = ({
   isActive,
   onClick,
   notificationCount,
+  notificationType = "error", // Default to error if not specified
   status,
   stepProgress,
 }) => (
@@ -52,13 +53,42 @@ const TabButton = ({
           ? "active border-b-2 border-blue-500 font-bold"
           : "border-b border-transparent"
       } 
-      hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150`} // <-- Added hover styling
+      hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-150`}
     onClick={onClick}
   >
     {notificationCount > 0 ? (
-      <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold rounded-full bg-red-500 text-white">
-        {notificationCount}
-      </span>
+      notificationType === "info" ? (
+        // Info: Grey number with no background shape
+        <span className="text-md font-semibold text-gray-500 dark:text-gray-100">
+          {notificationCount}
+        </span>
+      ) : notificationType === "warning" || notificationType === "warn" ? (
+        // Warning: Yellow triangle with number
+        <div className="relative h-5 w-5 flex items-center justify-center">
+          <svg
+            className="absolute text-yellow-500"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            width="20"
+            height="20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <span className="relative text-xs font-semibold text-gray-900 z-10">
+            {notificationCount}
+          </span>
+        </div>
+      ) : (
+        // Error: Red circle (original style)
+        <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold rounded-full bg-red-500 text-white">
+          {notificationCount}
+        </span>
+      )
     ) : stepProgress > 0 && stepProgress < 100 ? (
       <div className="animate-spin h-4 w-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -611,6 +641,7 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
             isActive={activeTab === step.name}
             onClick={() => handleTabSelect(step.name)}
             notificationCount={step.notificationCount || 0}
+            notificationType={step.notificationType || "error"}
             status={step.status}
             stepProgress={step.stepProgress || 0}
           />

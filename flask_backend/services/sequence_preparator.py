@@ -115,6 +115,8 @@ class SequencePreparator:
 
             # Step 5: Final message creation (80-100%)
             # Create message based on what was adjusted
+            notification_type = "info"
+
             if not in_frame:
                 if trim_start_codon and trim_stop_codon:
                     message = ("Provided sequence does not appear to be in frame, using provided start codon "
@@ -131,9 +133,11 @@ class SequencePreparator:
                 else:
                     message = ("Provided sequence does not appear to be in frame. If this is not intended, please check the sequence.")
                     notification_count = 1
+                    notification_type = "warning"
                     logger.log_step("Frame Warning", "Sequence not in frame and no codon trimming performed", level=logging.ERROR)
                     send_update(message="Sequence not in frame and cannot be corrected", prog=100,
                                 notification_count=notification_count,
+                                notification_type=notification_type,
                                 processed_sequence=str(cleaned_sequence),
                                 callout="Warning: Sequence not in frame and cannot be corrected. Be sure this is what you intended.")
                     return str(sequence), True
@@ -155,6 +159,7 @@ class SequencePreparator:
             
             send_update(message=f"Preprocessing complete: {message}", prog=100,
                         notification_count=notification_count,
+                        notification_type=notification_type,
                         callout=message, processed_sequence=str(cleaned_sequence))
                 
         return str(cleaned_sequence), True

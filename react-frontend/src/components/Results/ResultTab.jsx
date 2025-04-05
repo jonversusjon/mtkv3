@@ -133,6 +133,10 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
           // Update notification count if provided
           if (event.notificationCount !== undefined) {
             steps[stepIndex].notificationCount = event.notificationCount;
+            // Set notification type if provided
+            if (event.notificationType) {
+              steps[stepIndex].notificationType = event.notificationType;
+            }
           }
 
           // Update message if provided

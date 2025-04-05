@@ -49,6 +49,7 @@ class SsePayload(FrontendFriendly):
     message: str
     step_progress: int
     notification_count: int = 0
+    notificaation_type: str = "info"
     rs_key: Optional[str] = None
     rs_keys: Optional[List[str]] = None
     mutation_count: Optional[int] = None
