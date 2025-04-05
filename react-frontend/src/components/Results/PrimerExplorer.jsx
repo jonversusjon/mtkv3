@@ -30,6 +30,28 @@ const PrimerExplorer = ({ stepSseData }) => {
     });
   };
 
+  // Helper function: Format primer set data for SnapGene import
+  const formatPrimersForSnapGene = (primerSet) => {
+    // Create TSV data with 3 columns: primer name, sequence, notes (empty)
+    // No headers as per SnapGene import format
+    let tsvContent = "";
+
+    primerSet.mutPrimerPairs.forEach((pair) => {
+      // Add forward primer
+      tsvContent += `${pair.forward.name}\t${pair.forward.sequence}\t\n`;
+      // Add reverse primer
+      tsvContent += `${pair.reverse.name}\t${pair.reverse.sequence}\t\n`;
+    });
+
+    return tsvContent;
+  };
+
+  // Helper function: Copy all primers in a set to clipboard in SnapGene format
+  const copyPrimerSetForSnapGene = (primerSet, setIndex) => {
+    const tsvContent = formatPrimersForSnapGene(primerSet);
+    copyToClipboard(tsvContent, `primer-set-${setIndex}`);
+  };
+
   return (
     <div className="mt-1">
       <div className="sticky top-14 z-20 bg-white dark:bg-gray-900 p-2 border-b border-gray-300 dark:border-gray-700 shadow-sm">
@@ -48,9 +70,33 @@ const PrimerExplorer = ({ stepSseData }) => {
               key={`primer-set-${setIndex}`}
               className="p-4 border border-gray-300 dark:border-gray-700 rounded-sm shadow-xs dark:bg-gray-800"
             >
-              <h3 className="text-lg font-semibold mb-2 dark:text-gray-200">
-                Primer Set {setIndex + 1}
-              </h3>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-semibold dark:text-gray-200">
+                  Primer Set {setIndex + 1}
+                </h3>
+                <button
+                  className="text-sm text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 px-3 py-1 rounded-sm flex items-center gap-1"
+                  onClick={() => copyPrimerSetForSnapGene(primerSet, setIndex)}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                    />
+                  </svg>
+                  {copiedStates[`primer-set-${setIndex}`]
+                    ? "Copied for SnapGene!"
+                    : "Copy All for SnapGene"}
+                </button>
+              </div>
               {primerSet.mutPrimerPairs.map((pair, pairIndex) => (
                 <div
                   key={`primer-pair-${setIndex}-${pairIndex}`}
