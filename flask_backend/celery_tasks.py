@@ -7,6 +7,7 @@ from flask_sse import sse
 from flask_backend.services import GoldenGateUtils, ProtocolMaker
 from flask_backend.models import ProtocolRequest, DomesticationResult, FrontendFriendly
 from flask_backend.logging import logger
+from flask_backend.services.utils import redis_client, get_mutation_hash
 
 from pydantic import BaseModel
 
@@ -183,7 +184,14 @@ def design_custom_primers_task(self, job_id, sequence_idx, selected_mutations):
         return {"status": "success", "primers": json.loads(cached_primers)}
 
     # Initialize ProtocolMaker
-    protocol_maker = ProtocolMaker(...)
+    protocol_maker = ProtocolMaker(
+        request_idx=sequence_idx,
+        sequence_to_domesticate=None,  # Retrieve from storage/database
+        codon_usage_dict={},  # Retrieve from storage/database
+        max_mutations=1,
+        verbose=True,
+        debug=True,
+    )
 
     # Design primers for the selected mutations
     primers = protocol_maker.primer_designer.design_custom_primers(selected_mutations)

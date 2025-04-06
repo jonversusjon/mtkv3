@@ -2,6 +2,8 @@
 import csv
 import json
 import os
+import redis
+import hashlib
 from collections import defaultdict
 from functools import lru_cache
 from typing import Dict, List, Optional
@@ -13,6 +15,14 @@ from prettytable import PrettyTable
 
 from flask_backend.models import RestrictionSite
 from flask_backend.logging import logger
+
+# Initialize Redis client
+redis_client = redis.Redis(
+    host=os.environ.get("REDIS_HOST", "localhost"),
+    port=int(os.environ.get("REDIS_PORT", 6379)),
+    db=int(os.environ.get("REDIS_DB", 0)),
+    decode_responses=True,
+)
 
 
 class GoldenGateUtils:

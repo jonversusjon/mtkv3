@@ -12,7 +12,10 @@ import json
 
 from flask_backend.services import GoldenGateUtils
 from flask_backend.logging import logger
-from flask_backend.celery_tasks import generate_protocol_task
+from flask_backend.celery_tasks import (
+    generate_protocol_task,
+    design_custom_primers_task,
+)
 
 
 api = Blueprint("api", __name__, url_prefix="/api")

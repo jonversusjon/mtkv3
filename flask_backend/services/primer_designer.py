@@ -1,4 +1,5 @@
 import numpy as np
+import json
 from Bio.Seq import Seq
 from flask_backend.services.utils import GoldenGateUtils
 from flask_backend.logging import logger
@@ -409,3 +410,86 @@ class PrimerDesigner:
 
         send_update(message="Edge primers generated successfully", prog=100)
         return edge_primers
+
+    def design_custom_primers(self, selected_mutations):
+        """
+        Design primers for a specific set of user-selected mutations.
+
+        Args:
+            selected_mutations: Dictionary mapping site keys to selected codon sequences
+
+        Returns:
+            Dictionary containing designed primer pairs
+        """
+        # Convert selected mutations to Mutation objects
+        mutation_set = {}
+        for site_key, codon_sequence in selected_mutations.items():
+            mutation = self._get_mutation_by_codon_sequence(site_key, codon_sequence)
+            if mutation:
+                mutation_set[site_key] = mutation
+
+        # Create a MutationSet object
+        from flask_backend.models import MutationSet
+
+        mut_set = MutationSet(
+            alt_codons=mutation_set, compatibility=[], mut_primer_sets=[]
+        )
+
+        # Check compatibility
+        from flask_backend.services.mut_optimizer import MutationOptimizer
+
+        matrix = MutationOptimizer().create_compatibility_matrix(
+            [
+                {"overhangs": {"overhang_options": mutation.overhang_options}}
+                for mutation in mutation_set.values()
+            ]
+        )
+        mut_set.compatibility = matrix.tolist()
+
+        # Design primers with max_results="one"
+        from flask_backend.models import MutationSetCollection
+
+        mut_primer_set = self.design_mutation_primers(
+            MutationSetCollection(rs_keys=list(mutation_set.keys()), sets=[mut_set]),
+            "CustomPrimer",
+            "one",
+            lambda *args, **kwargs: None,  # Empty callback
+        )
+
+        return mut_primer_set
+
+    def _get_mutation_by_codon_sequence(self, site_key, codon_sequence):
+        """
+        Helper method to retrieve a Mutation object based on site key and codon sequence.
+
+        Args:
+            site_key: The restriction site key
+            codon_sequence: The selected codon sequence
+
+        Returns:
+            Mutation object if found, None otherwise
+        """
+        # Example implementation assuming mutation_options is stored in Redis:
+        from flask_backend.services.utils import redis_client
+
+        job_id = "current_job_id"  # Replace with actual job ID retrieval logic
+        sequence_idx = (
+            "current_sequence_idx"  # Replace with actual sequence index retrieval logic
+        )
+
+        cache_key = f"mutation_options:{job_id}:{sequence_idx}"
+        cached_options = redis_client.get(cache_key)
+
+        if cached_options:
+            mutation_options = json.loads(cached_options)
+            site_mutations = mutation_options.get(site_key, [])
+
+            for mutation in site_mutations:
+                for mut_codon in mutation.get("mutCodons", []):
+                    if (
+                        mut_codon.get("codon", {}).get("codonSequence")
+                        == codon_sequence
+                    ):
+                        return mutation
+
+        return None
