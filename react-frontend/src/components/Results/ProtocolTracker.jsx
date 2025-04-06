@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import RestrictionSiteSummary from "./RestrictionSiteSummary";
 import MutationExplorer from "./MutationExplorer";
 import PrimerExplorer from "./PrimerExplorer";
+import PcrReactionGrouping from "./PcrReactionGrouping";
 
 // UI Helper Components
 const ProgressStep = ({ name, stepProgress, message }) => {
@@ -322,61 +323,7 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
 
       case "PCR Reaction Grouping":
         if (stepSseData.pcrReactions && stepSseData.pcrReactions.length > 0) {
-          return (
-            <div className="mt-2">
-              <h3 className="font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                PCR Reactions:
-              </h3>
-              <div className="space-y-4">
-                {stepSseData.pcrReactions.map((reaction, idx) => (
-                  <div
-                    key={idx}
-                    className="border rounded-sm p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700"
-                  >
-                    <h4 className="font-medium text-gray-700 dark:text-gray-200 mb-2">
-                      Reaction {idx + 1}
-                    </h4>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="col-span-2">
-                        <span className="font-medium dark:text-gray-300">
-                          Template:
-                        </span>{" "}
-                        <span className="dark:text-gray-300">
-                          {reaction.template || "N/A"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="font-medium dark:text-gray-300">
-                          Forward Primer:
-                        </span>{" "}
-                        <span className="dark:text-gray-300">
-                          {reaction.forwardPrimer || "N/A"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="font-medium dark:text-gray-300">
-                          Reverse Primer:
-                        </span>{" "}
-                        <span className="dark:text-gray-300">
-                          {reaction.reversePrimer || "N/A"}
-                        </span>
-                      </div>
-                      {reaction.product && (
-                        <div className="col-span-2">
-                          <span className="font-medium dark:text-gray-300">
-                            Product:
-                          </span>
-                          <div className="font-mono text-xs mt-1 p-1 bg-gray-100 dark:bg-gray-900 rounded-sm dark:text-gray-300">
-                            {reaction.product}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
+          return <PcrReactionGrouping stepSseData={stepSseData} />;
         }
         break;
 
