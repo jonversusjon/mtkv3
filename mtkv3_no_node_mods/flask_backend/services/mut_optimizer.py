@@ -206,33 +206,34 @@ class MutationOptimizer:
 
     def create_compatibility_matrix(self, mutation_set: list) -> np.ndarray:
         """
-        Compute compatibility matrix for a single mutation set.
+        Given a mutation_set (a list where each entry is a dict in the format:
+            {"overhangs": {"overhang_options": List[OverhangOption]}}),
+        compute and return its compatibility matrix as a numpy ndarray.
         """
+        # Build list of overhang option lists for each mutation entry.
         overhang_lists = [
             entry["overhangs"]["overhang_options"] for entry in mutation_set
         ]
+        # Determine the shape of the compatibility matrix.
         shape = tuple(len(options) for options in overhang_lists)
         matrix = np.zeros(shape, dtype=int)
 
+        # Iterate over every combination of indices corresponding to overhang options for each site.
         for combo_indices in product(
             *[range(len(options)) for options in overhang_lists]
         ):
+            # Retrieve the chosen OverhangOption objects for this combination.
             combo = tuple(overhang_lists[i][idx] for i, idx in enumerate(combo_indices))
+            n = len(combo)
+            # Check if all pairs of chosen overhangs are compatible based on their top_overhang attribute.
             if all(
                 self.compatibility_table[
                     self.utils.seq_to_index(combo[i].top_overhang)
                 ][self.utils.seq_to_index(combo[j].top_overhang)]
                 == 1
-                for i in range(len(combo))
-                for j in range(i + 1, len(combo))
+                for i in range(n)
+                for j in range(i + 1, n)
             ):
                 matrix[combo_indices] = 1
 
         return matrix
-
-    def check_single_mutation_set_compatibility(self, mutation_set):
-        """
-        Check compatibility of a single mutation set.
-        """
-        matrix = self.create_compatibility_matrix(mutation_set)
-        return np.any(matrix == 1)

@@ -1,13 +1,11 @@
 # services/protocol.py
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 from functools import partial
 
 from flask_backend.models import (
     DomesticationResult,
     SequenceToDomesticate,
-    MutationSetCollection,
-    RestrictionSite
 )
 from flask_backend.services import (
     SequencePreparator,
@@ -20,7 +18,8 @@ from flask_backend.services import (
 from flask_backend.services.utils import GoldenGateUtils
 from flask_backend.logging import logger
 
-class ProtocolMaker():
+
+class ProtocolMaker:
     """
     Orchestrates the Golden Gate protocol by managing sequence preparation,
     primer design, mutation analysis, and optimization.
@@ -51,19 +50,22 @@ class ProtocolMaker():
             verbose=verbose,
             debug=True,
         )
-        self.mutation_optimizer = MutationOptimizer(
-            verbose=verbose, debug=True)
-        self.primer_designer = PrimerDesigner(
-            kozak=kozak, verbose=verbose, debug=True)
+        self.mutation_optimizer = MutationOptimizer(verbose=verbose, debug=True)
+        self.primer_designer = PrimerDesigner(kozak=kozak, verbose=verbose, debug=True)
         self.reaction_organizer = ReactionOrganizer(
             seq_to_dom=sequence_to_domesticate,
             utils=self.utils,
             verbose=verbose,
-            debug=True)
-        
-        logger.debug(f"Protocol maker for sequence {request_idx+1} initialized with codon_usage_dict: {codon_usage_dict}")
+            debug=True,
+        )
+
+        logger.debug(
+            f"Protocol maker for sequence {request_idx + 1} initialized with codon_usage_dict: {codon_usage_dict}"
+        )
         if verbose:
-            logger.log_step("Verbose Mode", "Protocol maker is running in verbose mode.")
+            logger.log_step(
+                "Verbose Mode", "Protocol maker is running in verbose mode."
+            )
 
         self.request_idx = request_idx
         self.seq_to_dom: SequenceToDomesticate = sequence_to_domesticate
@@ -78,96 +80,55 @@ class ProtocolMaker():
 
     def create_gg_protocol(self, send_update) -> dict:
         """
-        Main function to orchestrate the Golden Gate protocol creation.
-        Returns:
-            dict: A dictionary containing protocol details.
+        Main function to orchestrate the Golden Gate protocol creation in stages.
         """
-        # Initialize the result object
-        logger.log_step("Protocol Start - Process Sequence", f"Processing sequence {self.request_idx+1}")        
+        logger.log_step("Protocol Start", f"Processing sequence {self.request_idx + 1}")
         dom_result = DomesticationResult(
             sequence_index=self.request_idx,
             mtk_part_left=self.seq_to_dom.mtk_part_left,
             mtk_part_right=self.seq_to_dom.mtk_part_right,
         )
-        
-        # 1 - Preprocess the sequence
-        logger.log_step("Preprocessing", f"Preprocessing sequence at index {self.request_idx+1}")
+
+        # Stage 1: Preprocessing and Restriction Site Detection
         processed_seq, valid_seq = self.sequence_preparator.preprocess_sequence(
-            self.seq_to_dom.sequence, 
+            self.seq_to_dom.sequence,
             self.seq_to_dom.mtk_part_left,
-            partial(send_update, step="Preprocessing")
+            partial(send_update, step="Preprocessing"),
         )
-        # TODO: need a way to gracefully handle invalid sequences that snuck past
-        # the frontend validation.
         if not valid_seq:
-            logger.log_step("Preprocessing Error", "Invalid sequence detected during preprocessing.")
             return dom_result
-        dom_result.processed_sequence = str(processed_seq) if processed_seq else str(self.seq_to_dom.sequence)
-    
-        # 2 - Restriction Site Detection
-        logger.log_step("Restriction Site Detection", f"Detecting restriction sites for sequence {self.request_idx+1}")
-        restriction_sites: List[RestrictionSite] = self.rs_analyzer.find_restriction_sites(
-            processed_seq,
-            partial(send_update, step="Restriction Sites")
+        dom_result.processed_sequence = str(processed_seq)
+
+        restriction_sites = self.rs_analyzer.find_restriction_sites(
+            processed_seq, partial(send_update, step="Restriction Sites")
         )
         dom_result.restriction_sites = restriction_sites
 
-        mutation_primers = {}
         if restriction_sites:
-            # 3 - Mutation Analysis
-            logger.log_step("Mutation Analysis", f"Analyzing mutations for sequence {self.request_idx+1}")
+            # Stage 2: Mutation Analysis
             mutation_options = self.mutation_analyzer.get_all_mutations(
-                restriction_sites,
-                partial(send_update, step="Mutation Check")
+                restriction_sites, partial(send_update, step="Mutation Analysis")
             )
-            
-            mutation_sets: MutationSetCollection = None 
+            dom_result.mutation_options = mutation_options
+
+            # Stage 3: Primer Design (Background)
             if mutation_options:
-                logger.log_step("Mutation Optimization", f"Optimizing mutations for sequence {self.request_idx+1}")
-                mutation_sets: MutationSetCollection = self.mutation_optimizer.optimize_mutations(
-                    mutation_options,
-                    partial(send_update, step="Mutation Analysis")
+                best_mutations = self._select_best_mutations(mutation_options)
+                dom_result.recommended_primers = (
+                    self.primer_designer.design_best_primers(
+                        best_mutations, partial(send_update, step="Primer Design")
+                    )
                 )
-
-                # 4 - Primer Design
-                logger.log_step("Primer Design", f"Designing mutation primers for sequence {self.request_idx+1}")
-                mutation_primers = self.primer_designer.design_mutation_primers(
-                    mutation_sets,
-                    self.seq_to_dom.primer_name if self.seq_to_dom.primer_name else f"Primer{self.request_idx+1}",
-                    self.max_results if self.max_results else "one",
-                    partial(send_update, step="Primer Design")
-                )
-                dom_result.mut_primers = mutation_primers
-        
-        # Generate edge primers
-        logger.log_step("Edge Primer Design", f"Designing edge primers for sequence {self.request_idx+1}")
-        dom_result.edge_primers = self.primer_designer.generate_GG_edge_primers(
-            self.request_idx,
-            processed_seq,
-            self.seq_to_dom.mtk_part_left,
-            self.seq_to_dom.mtk_part_right,
-            self.seq_to_dom.primer_name,
-            partial(send_update, step="Primer Design")
-        )
-        logger.log_step("Edge Primer Result", "Edge primers generated.",
-                        {"edge_forward": dom_result.edge_primers.forward,
-                        "edge_reverse": dom_result.edge_primers.reverse})
-        
-        logger.log_step("PCR Reaction Grouping", "Grouping primers into PCR reactions using designed primers.")
-        
-        nested_reactions = self.reaction_organizer.group_primers_into_pcr_reactions(
-            dom_result,
-            partial(send_update, step="PCR Reaction Grouping")
-        )
-
-        # Flatten the reactions into a list of PCRReaction
-        dom_result.PCR_reactions = [
-            reaction
-            for mutation_set in nested_reactions["mutation_sets"]
-            for solution in mutation_set["solutions"]
-            for reaction in solution["reactions"]
-        ]
-
-        print("Finished grouping primers into PCR reactions...")
 
         return dom_result
+
+    def _select_best_mutations(self, mutation_options):
+        """
+        Select the best mutations based on a heuristic (e.g., highest codon usage).
+        """
+        best_mutations = {}
+        for site_key, mutations in mutation_options.items():
+            best_mutations[site_key] = max(
+                mutations, key=lambda m: m["mutCodons"][0].codon.usage
+            )
+        return best_mutations

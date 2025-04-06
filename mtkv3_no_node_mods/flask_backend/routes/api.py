@@ -1,11 +1,4 @@
-from flask import (
-    Blueprint,
-    request,
-    jsonify,
-    current_app,
-    Response,
-    stream_with_context,
-)
+from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from functools import wraps
 import time
 import json
@@ -21,7 +14,6 @@ utils = GoldenGateUtils()
 
 def handle_errors(f):
     """Decorator to handle exceptions in API routes with standardized error responses."""
-
     @wraps(f)
     def decorated_function(*args, **kwargs):
         try:
@@ -29,7 +21,6 @@ def handle_errors(f):
         except Exception as e:
             logger.error(e, exc_info=True)
             return jsonify({"error": str(e)}), 500
-
     return decorated_function
 
 
@@ -45,7 +36,7 @@ def generate_protocol():
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
-
+        
     task = generate_protocol_task.delay(data)
     return jsonify({"task_id": task.id}), 202
 
@@ -53,44 +44,39 @@ def generate_protocol():
 @api.route("/status/<job_id>")
 def sse_status(job_id):
     print(f"SSE route hit for job_id={job_id}")
-
     def event_stream():
         while True:
             async_result = get_celery_instance().AsyncResult(job_id)
             state = async_result.state
             print(f"Current state: {state}")
             meta = async_result.info or {}
-
+            
             # Ensure meta is a dictionary before processing.
             if not isinstance(meta, dict):
                 msg = "Value of KeyError:", meta.args[0]
 
+
                 logger.log_step("SSE", msg)
                 # Convert non-dict meta to a dict; for example, store its string representation.
                 meta = {"error": str(meta)}
-
+            
             # print("Meta keys:", list(meta.keys()))
-
+            
             try:
                 data = json.dumps(meta)
             except TypeError as e:
                 # In case any value is still not serializable, convert it.
-                meta = {
-                    str(k): (
-                        v
-                        if isinstance(v, (int, float, str, bool, list, dict))
-                        else str(v)
-                    )
-                    for k, v in meta.items()
-                }
+                meta = {str(k): (v if isinstance(v, (int, float, str, bool, list, dict)) else str(v))
+                        for k, v in meta.items()}
                 data = json.dumps(meta)
-                data["error"] = str(e)
-
+                data['error'] = str(e)
+            
             yield f"data: {data}\n\n"
             if state in ["SUCCESS", "FAILURE"]:
                 break
             time.sleep(2)
 
+            
     return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
 
 
@@ -123,7 +109,7 @@ def export_protocol():
 
     filename = f"primers_{utils.generate_unique_id()}.tsv"
     filepath = f"static/exports/{filename}"
-
+    
     try:
         with open(filepath, "w") as f:
             f.write("Primer Name\tSequence\tAmplicon\n")
@@ -148,26 +134,3 @@ def get_dummy_data():
     """Get active application configuration."""
     print(f"current_app.config: {current_app.config}")
     return jsonify(current_app.config.get("PREFILL_DATA", {}))
-
-
-@api.route("/design_primers", methods=["POST"])
-@handle_errors
-def design_primers():
-    """
-    API endpoint to design primers for user-selected mutations.
-    """
-    data = request.json
-    job_id = data.get("job_id")
-    sequence_idx = data.get("sequence_idx")
-    selected_mutations = data.get("selected_mutations")
-
-    # Validate inputs
-    if not job_id or not sequence_idx or not selected_mutations:
-        return jsonify({"error": "Missing required parameters"}), 400
-
-    # Trigger custom primer design task
-    task = design_custom_primers_task.delay(job_id, sequence_idx, selected_mutations)
-
-    return jsonify(
-        {"status": "success", "message": "Primer design started", "task_id": task.id}
-    )

@@ -14,12 +14,13 @@ from prettytable import PrettyTable
 from flask_backend.models import RestrictionSite
 from flask_backend.logging import logger
 
-
-class GoldenGateUtils:
+class GoldenGateUtils():
     def __init__(self, verbose: bool = False, job_id: Optional[str] = None):
         self.verbose = verbose
-        self.data_dir = os.path.join(os.path.dirname(__file__), "../static/data")
-        self.codon_tables_dir = os.path.join(self.data_dir, "codon_usage_tables")
+        self.data_dir = os.path.join(
+            os.path.dirname(__file__), "../static/data")
+        self.codon_tables_dir = os.path.join(
+            self.data_dir, "codon_usage_tables")
 
     def load_json_file(self, filename: str) -> Optional[Dict]:
         """Loads a JSON file from the static/data directory."""
@@ -43,7 +44,8 @@ class GoldenGateUtils:
             with open(filename, "r") as f:
                 return json.load(f)
         except FileNotFoundError:
-            logger.error(f"Codon usage table not found for species: {species}")
+            logger.error(
+                f"Codon usage table not found for species: {species}")
             return None
 
     @lru_cache(maxsize=1)
@@ -51,9 +53,7 @@ class GoldenGateUtils:
         """Loads MTK part-end sequences."""
         return self.load_json_file("mtk_partend_sequences.json")
 
-    def get_mtk_partend_sequence(
-        self, mtk_part_num: str, primer_direction: str, kozak: str = "MTK"
-    ) -> Optional[str]:
+    def get_mtk_partend_sequence(self, mtk_part_num: str, primer_direction: str, kozak: str = "MTK") -> Optional[str]:
         """
         Retrieve the correct overhang sequence based on the part number, direction, and kozak preference.
 
@@ -73,11 +73,7 @@ class GoldenGateUtils:
         base_key = f"{mtk_part_num}{primer_direction}"
 
         # Check if a star version should be used for Canonical Kozak cases
-        if (
-            kozak == "Canonical"
-            and mtk_part_num in {"2", "3", "3a"}
-            and primer_direction == "forward"
-        ):
+        if kozak == "Canonical" and mtk_part_num in {"2", "3", "3a"} and primer_direction == "forward":
             star_key = f"{mtk_part_num}star{primer_direction}"
             return mtk_sequences.get(star_key, mtk_sequences.get(base_key))
 
@@ -87,9 +83,8 @@ class GoldenGateUtils:
     def get_available_species(self) -> List[str]:
         """Gets list of available species from codon usage tables."""
         if os.path.exists(self.codon_tables_dir):
-            return [
-                f[:-5] for f in os.listdir(self.codon_tables_dir) if f.endswith(".json")
-            ]
+            return [f[:-5] for f in os.listdir(self.codon_tables_dir)
+                    if f.endswith('.json')]
         logger.warning("Codon usage tables directory not found")
         return []
 
@@ -108,13 +103,12 @@ class GoldenGateUtils:
         amino_acid = amino_acid.upper()
         table = CodonTable.unambiguous_dna_by_id[1]
 
-        if amino_acid == "*":
+        if amino_acid == '*':
             return table.stop_codons
 
-        codons = [
-            codon for codon, aa in table.forward_table.items() if aa == amino_acid
-        ]
-
+        codons = [codon for codon, aa in table.forward_table.items()
+                  if aa == amino_acid]
+        
         print(f"Codons found: {codons}")
 
         return codons
@@ -126,44 +120,38 @@ class GoldenGateUtils:
         gc_count = sum(1 for nt in seq.upper() if nt in "GC")
         return round(gc_count / len(seq), 3)
 
+
     def seq_to_index(self, seq: str) -> int:
         """Converts a 4-nucleotide sequence to its corresponding matrix index."""
         seq = seq.upper()
-        NT_VALUES = {"A": 0, "C": 1, "G": 2, "T": 3}
+        NT_VALUES = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
         index = 0
         for pos, nt in enumerate(seq):
             power = 3 - pos
-            index += NT_VALUES[nt] * (4**power)
+            index += NT_VALUES[nt] * (4 ** power)
 
         return index
 
     def load_compatibility_table(self, path: str) -> np.ndarray:
         """Loads the binary compatibility table into a numpy array."""
-        with open(path, "rb") as f:
+        with open(path, 'rb') as f:
             binary_data = f.read()
 
-        compatibility_bits = np.unpackbits(np.frombuffer(binary_data, dtype=np.uint8))
+        compatibility_bits = np.unpackbits(
+            np.frombuffer(binary_data, dtype=np.uint8)
+        )
         compatibility_matrix = compatibility_bits.reshape(256, 256)
 
         if self.verbose:
-            logger.log_step(
-                "",
-                f"Loaded compatibility matrix with shape: {compatibility_matrix.shape}",
-            )
-            logger.log_step(
-                "", f"Number of compatible pairs: {np.sum(compatibility_matrix)}"
-            )
+            logger.log_step("",
+                f"Loaded compatibility matrix with shape: {compatibility_matrix.shape}")
+            logger.log_step("",
+                f"Number of compatible pairs: {np.sum(compatibility_matrix)}")
             logger.log_step("", f"Matrix density: {np.mean(compatibility_matrix):.2%}")
 
         return compatibility_matrix
 
-    def get_codon_usage(
-        self,
-        codon: str,
-        amino_acid: str,
-        codon_usage_dict: dict,
-        default_usage: float = 0.0,
-    ) -> float:
+    def get_codon_usage(self, codon: str, amino_acid: str, codon_usage_dict: dict, default_usage: float = 0.0) -> float:
         """Retrieves codon usage frequency."""
         # Convert DNA (T) to RNA (U) for lookup
         codon_rna = codon.replace("T", "U")
@@ -195,46 +183,35 @@ class GoldenGateUtils:
         for seq in combo:
             for i in range(len(seq) - 3):
                 if seq[i] == seq[i + 1] == seq[i + 2] == seq[i + 3]:
-                    return (
-                        f"Overhang {seq} has more than 3 consecutive identical bases."
-                    )
+                    return f"Overhang {seq} has more than 3 consecutive identical bases."
         seen_triplets = set()
         for seq in combo:
             for i in range(len(seq) - 2):
-                triplet = seq[i : i + 3]
+                triplet = seq[i:i + 3]
                 if triplet in seen_triplets:
                     return f"Multiple overhangs share the triplet '{triplet}'."
                 seen_triplets.add(triplet)
         for seq in combo:
-            gc_content = sum(1 for base in seq if base in "GC") / len(seq) * 100
+            gc_content = sum(
+                1 for base in seq if base in "GC") / len(seq) * 100
             if gc_content == 0:
                 return f"Overhang {seq} has 0% GC content (all A/T)."
             elif gc_content == 100:
                 return f"Overhang {seq} has 100% GC content (all G/C)."
         return "Unknown reason (should not happen)."
 
-    def calculate_optimal_primer_length(
-        self, sequence: str, position: int, direction="forward"
-    ) -> int:
-        logger.log_step(
-            "Calculate Primer Length",
-            f"Optimal {direction} primer from pos {position}",
-            {"sequence_length": len(sequence)},
-        )
+    def calculate_optimal_primer_length(self, sequence: str, position: int, direction='forward') -> int:
+        logger.log_step("Calculate Primer Length", f"Optimal {direction} primer from pos {position}",
+                      {"sequence_length": len(sequence)})
         min_length, max_length, target_tm = 18, 30, 60
         optimal_length = min_length
 
-        if direction == "forward":
-            for length in range(
-                min_length, min(max_length + 1, len(sequence) - position)
-            ):
-                primer_seq = sequence[position : position + length]
+        if direction == 'forward':
+            for length in range(min_length, min(max_length + 1, len(sequence) - position)):
+                primer_seq = sequence[position:position + length]
                 tm = self.calculate_tm(primer_seq)
-                logger.log_step(
-                    "Length Iteration",
-                    f"Length {length}",
-                    {"tm": tm, "target": target_tm},
-                )
+                logger.log_step("Length Iteration", f"Length {length}", {
+                              "tm": tm, "target": target_tm})
                 if tm >= target_tm:
                     optimal_length = length
                     break
@@ -242,13 +219,10 @@ class GoldenGateUtils:
             for length in range(min_length, min(max_length + 1, position + 1)):
                 if position - length < 0:
                     break
-                primer_seq = sequence[position - length : position]
+                primer_seq = sequence[position - length:position]
                 tm = self.calculate_tm(primer_seq)
-                logger.log_step(
-                    "Length Iteration",
-                    f"Length {length}",
-                    {"tm": tm, "target": target_tm},
-                )
+                logger.log_step("Length Iteration", f"Length {length}", {
+                              "tm": tm, "target": target_tm})
                 if tm >= target_tm:
                     optimal_length = length
                     break
@@ -256,11 +230,7 @@ class GoldenGateUtils:
         logger.validate(
             optimal_length >= min_length,
             f"Calculated optimal primer length: {optimal_length}",
-            {
-                "direction": direction,
-                "min_length": min_length,
-                "max_length": max_length,
-            },
+            {"direction": direction, "min_length": min_length, "max_length": max_length}
         )
         return optimal_length
 
@@ -285,7 +255,7 @@ class GoldenGateUtils:
         primer_data: Optional[List[List[str]]] = None,
         forward_primers: Optional[List[tuple]] = None,
         reverse_primers: Optional[List[tuple]] = None,
-        header: Optional[List[str]] = None,
+        header: Optional[List[str]] = None
     ) -> None:
         """
         Exports primers to a TSV file.
@@ -324,15 +294,14 @@ class GoldenGateUtils:
                 else:
                     logger.error("Insufficient primer data provided.")
                     raise ValueError(
-                        "Either primer_data or both forward_primers and reverse_primers must be provided."
-                    )
+                        "Either primer_data or both forward_primers and reverse_primers must be provided.")
 
             logger.log_step("", f"Primers exported to {output_tsv_path}")
         except IOError as e:
             logger.error(f"Error writing to file {output_tsv_path}: {e}")
             raise
 
-    def get_nested_keys(self, item, prefix="", depth=0, max_depth=100):
+    def get_nested_keys(self, item, prefix='', depth=0, max_depth=100):
         """Recursively collect keys from dictionaries and lists."""
         if depth > max_depth:
             return [f"Max recursion depth ({max_depth}) exceeded."]
@@ -341,13 +310,13 @@ class GoldenGateUtils:
             for k, v in item.items():
                 full_key = f"{prefix}.s{k}" if prefix else k
                 keys.append(full_key)
-                keys.extend(self.get_nested_keys(v, full_key, depth + 1, max_depth))
+                keys.extend(self.get_nested_keys(
+                    v, full_key, depth + 1, max_depth))
         elif isinstance(item, list):
             for index, element in enumerate(item):
                 indexed_prefix = f"{prefix}[{index}]"
-                keys.extend(
-                    self.get_nested_keys(element, indexed_prefix, depth + 1, max_depth)
-                )
+                keys.extend(self.get_nested_keys(
+                    element, indexed_prefix, depth + 1, max_depth))
         return keys
 
     def print_object_schema(self, obj, indent=0, name="object"):
@@ -375,14 +344,13 @@ class GoldenGateUtils:
                 # Sort keys for consistency
                 items.sort(key=lambda x: str(x[0]))
                 rep_key, rep_val = items[0]
-                key_repr = (
-                    f"['{rep_key}']" if isinstance(rep_key, str) else f"[{rep_key}]"
-                )
-                self.print_object_schema(rep_val, indent + 1, f"{name}{key_repr}")
+                key_repr = f"['{rep_key}']" if isinstance(
+                    rep_key, str) else f"[{rep_key}]"
+                self.print_object_schema(
+                    rep_val, indent + 1, f"{name}{key_repr}")
                 if len(items) > 1:
                     print(
-                        f"{prefix}  ... ({len(items) - 1} more keys with same schema)"
-                    )
+                        f"{prefix}  ... ({len(items)-1} more keys with same schema)")
 
         elif isinstance(obj, list):
             print(f"{prefix}{name} (list) with {len(obj)} items:")
@@ -390,15 +358,18 @@ class GoldenGateUtils:
                 return
             # Check if all list items share the same schema
             first_sig = self.get_structure(obj[0])
-            all_same = all(self.get_structure(item) == first_sig for item in obj)
+            all_same = all(self.get_structure(item) ==
+                           first_sig for item in obj)
             if all_same:
                 self.print_object_schema(obj[0], indent + 1, f"{name}[0]")
                 if len(obj) > 1:
-                    print(f"{prefix}  ... ({len(obj) - 1} more items with same schema)")
+                    print(
+                        f"{prefix}  ... ({len(obj)-1} more items with same schema)")
             else:
                 # Otherwise, print the schema for each item
                 for idx, item in enumerate(obj):
-                    self.print_object_schema(item, indent + 1, f"{name}[{idx}]")
+                    self.print_object_schema(
+                        item, indent + 1, f"{name}[{idx}]")
 
         elif hasattr(obj, "__dict__") and obj.__dict__:
             print(f"{prefix}{name} (object):")
@@ -410,15 +381,16 @@ class GoldenGateUtils:
             for sig, items in groups.items():
                 items.sort(key=lambda x: str(x[0]))
                 rep_attr, rep_val = items[0]
-                self.print_object_schema(rep_val, indent + 1, f"{name}.{rep_attr}")
+                self.print_object_schema(
+                    rep_val, indent + 1, f"{name}.{rep_attr}")
                 if len(items) > 1:
                     print(
-                        f"{prefix}  ... ({len(items) - 1} more attributes with same schema)"
-                    )
+                        f"{prefix}  ... ({len(items)-1} more attributes with same schema)")
 
         elif hasattr(obj, "shape") and hasattr(obj, "dtype"):
             # For array-like objects (e.g., numpy arrays, pandas DataFrames)
-            print(f"{prefix}{name} (array-like): shape={obj.shape}, dtype={obj.dtype}")
+            print(
+                f"{prefix}{name} (array-like): shape={obj.shape}, dtype={obj.dtype}")
 
         else:
             # Primitive or other types
@@ -435,14 +407,10 @@ class GoldenGateUtils:
         """
         if isinstance(obj, dict):
             # For dictionaries, use a sorted tuple of (key, schema) pairs.
-            structure = tuple(
-                sorted(
-                    (
-                        (str(key), self.get_structure(value))
-                        for key, value in obj.items()
-                    )
-                )
-            )
+            structure = tuple(sorted(
+                ((str(key), self.get_structure(value))
+                 for key, value in obj.items())
+            ))
             return ("dict", structure)
         elif isinstance(obj, list):
             if not obj:
@@ -455,29 +423,23 @@ class GoldenGateUtils:
             else:
                 return ("list", tuple(item_structs))
         elif hasattr(obj, "__dict__") and obj.__dict__:
-            structure = tuple(
-                sorted(
-                    (
-                        (attr, self.get_structure(value))
-                        for attr, value in obj.__dict__.items()
-                    )
-                )
-            )
+            structure = tuple(sorted(
+                ((attr, self.get_structure(value))
+                 for attr, value in obj.__dict__.items())
+            ))
             return ("object", structure)
         elif hasattr(obj, "shape") and hasattr(obj, "dtype"):
             return ("array", str(obj.shape), str(obj.dtype))
         else:
             return type(obj).__name__
 
-    def summarize_bsmbi_bsai_sites(
-        self, restriction_sites: List[RestrictionSite]
-    ) -> None:
+    def summarize_bsmbi_bsai_sites(self, restriction_sites: List[RestrictionSite]) -> None:
         """
         Creates a formatted summary of restriction sites.
         """
         site_type_descriptions = {
-            "BsmBI": "BsmBI Restriction Site",
-            "BsaI": "BsaI Restriction Site",
+            'BsmBI': 'BsmBI Restriction Site',
+            'BsaI': 'BsaI Restriction Site',
         }
 
         # Group the sites by enzyme
@@ -498,38 +460,13 @@ class GoldenGateUtils:
 
         logger.log_step("", "\nRestriction Site Analysis Summary:")
         logger.log_step("", f"\n{table}")
-
-    def calculate_amplicon_size(
-        self, forward_primer_seq: str, reverse_primer_seq: str, sequence: str
-    ) -> int:
+        
+        
+    def calculate_amplicon_size(self, forward_primer_seq: str, reverse_primer_seq: str, sequence: str) -> int:
         """
         Calculate the amplicon size based on primer positions.
         This is a placeholder - replace with actual implementation.
         """
-        # In a real implementation, you would calculate this based on
+        # In a real implementation, you would calculate this based on 
         # the positions of the primers on the template
         return 500  # Placeholder value
-
-
-def cache_mutation_options(job_id, sequence_idx, mutation_options):
-    """Cache mutation options for later retrieval."""
-    cache_key = f"mutation_options:{job_id}:{sequence_idx}"
-    redis_client.set(
-        cache_key, json.dumps(mutation_options), ex=3600
-    )  # 1 hour expiration
-    return cache_key
-
-
-def cache_designed_primers(job_id, sequence_idx, mutation_hash, primers):
-    """Cache designed primers based on mutation selection hash."""
-    cache_key = f"primers:{job_id}:{sequence_idx}:{mutation_hash}"
-    redis_client.set(cache_key, json.dumps(primers), ex=3600)  # 1 hour expiration
-    return cache_key
-
-
-def get_mutation_hash(selected_mutations):
-    """Generate a consistent hash for mutation selection."""
-    # Sort to ensure consistency regardless of order
-    sorted_items = sorted(selected_mutations.items())
-    mutation_str = json.dumps(sorted_items)
-    return hashlib.md5(mutation_str.encode()).hexdigest()

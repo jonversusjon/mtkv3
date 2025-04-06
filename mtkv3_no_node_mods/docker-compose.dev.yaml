@@ -1,0 +1,55 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: flask_backend/Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: flask run --host=0.0.0.0 --reload
+    environment:
+      PYTHONPATH: /app
+      FLASK_APP: flask_backend.app:create_app()
+      FLASK_ENV: development
+      FLASK_DEBUG: "1"
+      FLASK_TESTING: "true"
+      PREFILL_DATA: flask_backend.dev.prefill_data.dev_config_2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_URL: redis://redis:6379/0
+
+    ports:
+      - "5000:5000"
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: .
+      dockerfile: flask_backend/Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+    # Auto‑restart on any *.py change under /app
+    command: >
+      watchmedo auto-restart
+      --directory=/app
+      --pattern="*.py"
+      --recursive
+      -- celery -A flask_backend.celery_worker.celery worker --concurrency=4 -l INFO -f flask_backend.log_utils.celery_logs
+
+    environment:
+      PYTHONPATH: /app
+      FLASK_ENV: development
+      FLASK_TESTING: "true"
+      PREFILL_DATA: flask_backend.dev.prefill_data.dev_config_2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
