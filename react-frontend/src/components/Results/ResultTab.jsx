@@ -55,19 +55,19 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
       console.log("Sample event structure:", rawSseEvents[0]);
     }
 
-    // Define expected protocol steps
+    // Define expected protocol steps with their updated event types
     const expectedSteps = [
       "Preprocessing",
       "Restriction Sites",
-      "Mutation Analysis",
-      "Primer Design",
+      "Mutation Analysis", // Now sends mutation_options
+      "Primer Design", // Now sends recommended primers
       "PCR Reaction Grouping",
     ];
 
     // Initialize steps with default values
     const steps = expectedSteps.map((name) => ({
       name,
-      status: "active",
+      status: "waiting",
       stepProgress: 0,
       message: "",
       notificationCount: 0,
@@ -84,32 +84,51 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
 
     // Process each event to update steps and sseData
     rawSseEvents.forEach((event) => {
-      // Try to determine which step this event belongs to
-      let stepName = null;
+      let stepName = event.step || null;
 
-      // Check for explicit step property
-      if (event.step) {
-        stepName = event.step;
+      // Handle mutation options event
+      if (event.mutation_options) {
+        stepName = "Mutation Analysis";
+        sseData[stepName].mutation_options = event.mutation_options;
       }
-      // Or infer from type and content
-      else if (event.type) {
-        if (event.type.includes("restriction") || event.sites) {
-          stepName = "Restriction Sites";
-        } else if (event.type.includes("mutation") || event.mutations) {
-          stepName = "Mutation Analysis";
-        } else if (
-          event.type.includes("primer") ||
-          event.primers ||
-          event.edgePrimers ||
-          event.mutPrimers
-        ) {
-          stepName = "Primer Design";
-        } else if (
-          event.type.includes("pcr") ||
-          event.reactions ||
-          event.pcrReactions
-        ) {
-          stepName = "PCR Reaction Grouping";
+
+      // Handle recommended primers event
+      if (event.recommended) {
+        stepName = "Primer Design";
+        sseData[stepName].recommended = event.recommended;
+      }
+
+      // Handle custom designed primers event
+      if (event.custom_primers) {
+        stepName = "Primer Design";
+        sseData[stepName].custom_primers = event.custom_primers;
+      }
+
+      // Legacy support for existing data types
+      if (!stepName) {
+        if (event.type) {
+          if (event.type.includes("restriction") || event.sites) {
+            stepName = "Restriction Sites";
+          } else if (
+            event.type.includes("mutation") ||
+            event.mutations ||
+            event.mutationSets
+          ) {
+            stepName = "Mutation Analysis";
+          } else if (
+            event.type.includes("primer") ||
+            event.primers ||
+            event.edgePrimers ||
+            event.mutPrimers
+          ) {
+            stepName = "Primer Design";
+          } else if (
+            event.type.includes("pcr") ||
+            event.reactions ||
+            event.pcrReactions
+          ) {
+            stepName = "PCR Reaction Grouping";
+          }
         }
       }
 
@@ -177,11 +196,17 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
         if (event.mutations) {
           sseData[stepName].mutations = event.mutations;
         }
+        if (event.mutationSets) {
+          sseData[stepName].mutationSets = event.mutationSets;
+        }
         if (event.edgePrimers) {
           sseData[stepName].edgePrimers = event.edgePrimers;
         }
         if (event.mutPrimers) {
           sseData[stepName].mutPrimers = event.mutPrimers;
+        }
+        if (event.primers) {
+          sseData[stepName].primers = event.primers;
         }
         if (event.reactions || event.pcrReactions) {
           sseData[stepName].pcrReactions =
@@ -190,7 +215,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
         if (event.callout) {
           sseData[stepName].callout = event.callout;
         }
-        if (event.notifcation_count) {
+        if (event.notification_count) {
           sseData[stepName].notificationCount = event.notification_count;
         }
       }
@@ -198,11 +223,6 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
 
     // Update protocol data state
     setProtocolSteps(steps);
-    console.log(
-      "STEPS DATA FOR PROTOCOL TRACKER:",
-      JSON.stringify(steps, null, 2)
-    );
-
     setProtocolMessages(messages);
     setProtocolCallouts(callouts);
     setProtocolSseData(sseData);
@@ -292,6 +312,11 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
   // --- Mount/Unmount Effect ---
   useEffect(() => {
     isMounted.current = true;
+
+    // Store the current sequence index in sessionStorage for components that need it
+    sessionStorage.setItem("currentSequenceIdx", sequenceIdx);
+    sessionStorage.setItem("jobId", jobId);
+
     console.log(
       `[ResultTab:${sequenceIdx}] Component Did Mount. Initial state length: ${rawSseEvents.length}`
     );
