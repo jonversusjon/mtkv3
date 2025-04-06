@@ -194,6 +194,11 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
       );
     }
 
+    // For debugging - log the data structure received for PCR Reaction Grouping
+    if (stepName === "PCR Reaction Grouping") {
+      console.log("PCR Reaction Grouping Data:", stepSseData);
+    }
+
     // Render content based on the step
     switch (stepName) {
       case "Preprocessing":
@@ -322,10 +327,9 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
         break;
 
       case "PCR Reaction Grouping":
-        if (stepSseData.pcrReactions && stepSseData.pcrReactions.length > 0) {
-          return <PcrReactionGrouping stepSseData={stepSseData} />;
-        }
-        break;
+        // Pass the data to our component regardless of data structure
+        // The PcrReactionGrouping component will handle parsing the data
+        return <PcrReactionGrouping stepSseData={stepSseData} />;
 
       default:
         return (
