@@ -24,7 +24,7 @@
     "react-icons": "^5.5.0",
     "react-responsive": "^10.0.1",
     "react-router-dom": "^7.3.0",
-    "react-scripts": "5.0.1",
+    "react-scripts": "^3.0.1",
     "react-toastify": "^11.0.5",
     "react-tooltip": "^5.28.0",
     "tailwindcss": "^4.0.17",
@@ -39,6 +39,7 @@
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^15.15.0",
+    "jest": "^27.5.1",
     "vite": "^6.2.0"
   }
 }

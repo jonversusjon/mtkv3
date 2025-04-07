@@ -82,83 +82,30 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
       sseData[step] = { timestamp: Date.now() };
     });
 
-    // Process each event to update steps and sseData
+    // Update the event processing logic to handle progress correctly
     rawSseEvents.forEach((event) => {
       let stepName = event.step || null;
 
-      // Handle mutation options event
       if (event.mutation_options) {
         stepName = "Mutation Analysis";
         sseData[stepName].mutation_options = event.mutation_options;
       }
 
-      // Handle recommended primers event
-      if (event.recommended) {
-        stepName = "Primer Design";
-        sseData[stepName].recommended = event.recommended;
-      }
-
-      // Handle custom designed primers event
-      if (event.custom_primers) {
-        stepName = "Primer Design";
-        sseData[stepName].custom_primers = event.custom_primers;
-      }
-
-      // Legacy support for existing data types
-      if (!stepName) {
-        if (event.type) {
-          if (event.type.includes("restriction") || event.sites) {
-            stepName = "Restriction Sites";
-          } else if (
-            event.type.includes("mutation") ||
-            event.mutations ||
-            event.mutationSets
-          ) {
-            stepName = "Mutation Analysis";
-          } else if (
-            event.type.includes("primer") ||
-            event.primers ||
-            event.edgePrimers ||
-            event.mutPrimers
-          ) {
-            stepName = "Primer Design";
-          } else if (
-            event.type.includes("pcr") ||
-            event.reactions ||
-            event.pcrReactions
-          ) {
-            stepName = "PCR Reaction Grouping";
-          }
-        }
-      }
-
-      // If we identified a step, update its status and data
       if (stepName) {
-        // Find the step in our array
         const stepIndex = steps.findIndex((s) => s.name === stepName);
         if (stepIndex >= 0) {
-          // Update step status based on event properties
-          if (event.status) {
-            steps[stepIndex].status = event.status;
-          } else if (event.stepProgress > 0) {
-            steps[stepIndex].status = "active";
-          }
-
-          // Update progress if provided
-          if (event.stepProgress !== undefined) {
-            steps[stepIndex].stepProgress = event.stepProgress;
-          }
-
-          // Update notification count if provided
-          if (event.notificationCount !== undefined) {
-            steps[stepIndex].notificationCount = event.notificationCount;
-            // Set notification type if provided
-            if (event.notificationType) {
-              steps[stepIndex].notificationType = event.notificationType;
+          if (event.message && event.message.includes("Complete")) {
+            steps[stepIndex].status = "completed";
+            steps[stepIndex].stepProgress = 100;
+          } else {
+            if (event.status) {
+              steps[stepIndex].status = event.status;
+            }
+            if (event.stepProgress !== undefined) {
+              steps[stepIndex].stepProgress = event.stepProgress;
             }
           }
 
-          // Update message if provided
           if (event.message) {
             steps[stepIndex].message = event.message;
             messages.push({
@@ -167,56 +114,6 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
               timestamp: event.timestamp || event.clientTimestamp,
             });
           }
-
-          // Update callout if provided
-          if (event.callout) {
-            callouts[stepIndex] = event.callout;
-            callouts.push({
-              step: stepName,
-              callout: event.callout,
-            });
-            steps[stepIndex].callout = event.callout;
-          }
-        }
-
-        // Update the sseData for this step
-        const stepData = sseData[stepName] || {};
-
-        // Merge all properties from the event
-        sseData[stepName] = {
-          ...stepData,
-          ...event, // Copy all event properties directly
-          timestamp: event.timestamp || event.clientTimestamp || Date.now(),
-        };
-
-        // Handle specific data structures we know are used by ProtocolTracker
-        if (event.sites) {
-          sseData[stepName].sites = event.sites;
-        }
-        if (event.mutations) {
-          sseData[stepName].mutations = event.mutations;
-        }
-        if (event.mutationSets) {
-          sseData[stepName].mutationSets = event.mutationSets;
-        }
-        if (event.edgePrimers) {
-          sseData[stepName].edgePrimers = event.edgePrimers;
-        }
-        if (event.mutPrimers) {
-          sseData[stepName].mutPrimers = event.mutPrimers;
-        }
-        if (event.primers) {
-          sseData[stepName].primers = event.primers;
-        }
-        if (event.reactions || event.pcrReactions) {
-          sseData[stepName].pcrReactions =
-            event.reactions || event.pcrReactions;
-        }
-        if (event.callout) {
-          sseData[stepName].callout = event.callout;
-        }
-        if (event.notification_count) {
-          sseData[stepName].notificationCount = event.notification_count;
         }
       }
     });

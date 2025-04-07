@@ -44,25 +44,41 @@ const MutationExplorer = ({ stepSseData }) => {
   // State for tracking selected mutations at each restriction site
   const [selectedMutations, setSelectedMutations] = useState({});
   // State to store mutation options and recommended mutations
-  const [mutationOptions, setMutationOptions] = useState({});
-  const [recommendedMutations, setRecommendedMutations] = useState({});
+  const [mutationOptions] = useState({});
+  const [recommendedMutations] = useState({});
   // Track copy button states for copied confirmation
   const [copiedStates, setCopiedStates] = useState({});
   // State for tracking primer design requests
   const [isDesigning, setIsDesigning] = useState(false);
+  const [restrictionSites, setRestrictionSites] = useState([]);
 
   // Initialize data on component load
   useEffect(() => {
     if (!stepSseData) return;
 
-    // Look for mutation_options directly in SSE data (from Stage 1)
-    if (stepSseData.mutation_options) {
-      setMutationOptions(stepSseData.mutation_options);
-    }
+    console.log("MutationExplorer received data:", stepSseData);
 
-    // Handle recommendation data (from Stage 2)
-    if (stepSseData.recommended && stepSseData.recommended.selected_mutations) {
-      setRecommendedMutations(stepSseData.recommended.selected_mutations);
+    if (stepSseData.mutationOptions) {
+      const sitesData = Object.entries(stepSseData.mutationOptions).map(
+        ([siteKey, mutations]) => {
+          return {
+            siteKey: siteKey,
+            mutations: mutations,
+            contextSequences: new Set(mutations.map((m) => m.mutContext)),
+            originalSequence: mutations[0]?.mutContext || null,
+          };
+        }
+      );
+
+      setRestrictionSites(sitesData);
+
+      const initialSelected = {};
+      sitesData.forEach((site) => {
+        initialSelected[site.siteKey] = 0;
+      });
+      setSelectedMutations(initialSelected);
+
+      console.log("Processed mutation sites:", sitesData);
     }
   }, [stepSseData]);
 
@@ -369,6 +385,7 @@ const MutationExplorer = ({ stepSseData }) => {
 
   return (
     <div className="mt-1">
+      {console.log("MutationExplorer rendering with sites:", restrictionSites)}
       <div className="sticky top-14 z-20 bg-white dark:bg-gray-900 p-2 border-b border-gray-300 dark:border-gray-700 shadow-sm">
         <h2 className="text-xl font-bold dark:text-gray-100">
           Mutation Explorer
