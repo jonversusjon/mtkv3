@@ -139,9 +139,9 @@ const EnhancedSequenceViewer = ({
   const effectiveMutatedSequence = mutatedSequence || derivedMutatedSequence;
 
   return (
-    <div className="mb-3">
-      <div className="font-medium mb-1 flex justify-between items-center dark:text-gray-200">
-        <span>Context Sequence:</span>
+    <div className="mb-3 border rounded-md">
+      <div className="font-medium px-2 py-1 flex justify-between items-center dark:text-gray-200">
+        <span className="m-2">Context Sequence:</span>
         <div className="flex space-x-2">
           <button
             className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 rounded-sm border border-gray-300 dark:border-gray-600"
@@ -157,10 +157,9 @@ const EnhancedSequenceViewer = ({
           </button>
         </div>
       </div>
-      <div className="relative top-2 border-1">
-        <pre
-          className="relative font-mono text-lg text-white text-center whitespace-pre -mt-2"
-        >
+      <div className="relative">
+        {/* Substitution row shifted by half a letter height upward */}
+        <pre className="relative font-mono text-lg text-white text-center whitespace-pre">
           {substitutionRow.map((char, i) => (
             <span
               key={`sub-${i}`}
@@ -177,7 +176,7 @@ const EnhancedSequenceViewer = ({
             </span>
           ))}
         </pre>
-        <pre className="font-mono text-lg text-white text-center whitespace-pre -mt-2">
+        <pre className="relative h-6px font-mono text-lg text-white text-center whitespace-pre -mt-2">
           {underlineRow.map((char, i) => (
             <span key={`under-${i}`} className="text-red-400 font-extrabold">
               {char === " " ? " " : char}
@@ -185,7 +184,6 @@ const EnhancedSequenceViewer = ({
           ))}
         </pre>
       </div>
-      
     </div>
   );
 };

@@ -67,7 +67,7 @@ const ResultTabs = ({ jobId }) => {
   return (
     <div className="flex flex-col w-full max-w-4xl mx-auto">
       {/* Result Tabs - Fixed at top with highest z-index */}
-      <div className="sticky top-24 z-50 bg-white dark:bg-gray-900 shadow-sm border-b border-gray-300 dark:border-gray-700">
+      <div className="sticky top-18 z-50 bg-white dark:bg-gray-900 shadow-sm border-b border-gray-300 dark:border-gray-700">
         <div className="flex justify-between overflow-x-auto">
           {sequences.map((seq, index) => {
             const isActive = activeTab === index;

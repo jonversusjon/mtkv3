@@ -236,7 +236,11 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
         );
 
       case "Primer Design":
-        if (stepSseData.primers || stepSseData.recommended || stepSseData.custom_primers) {
+        if (
+          stepSseData.primers ||
+          stepSseData.recommended ||
+          stepSseData.custom_primers
+        ) {
           return <PrimerExplorer stepSseData={stepSseData} />;
         } else if (
           (stepSseData.edgePrimers &&
@@ -335,7 +339,11 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
 
       case "PCR Reaction Grouping":
         // Pass the data to our component regardless of data structure
-        if (stepSseData.pcrReactions || stepSseData.results || stepSseData.mutationSets) {
+        if (
+          stepSseData.pcrReactions ||
+          stepSseData.results ||
+          stepSseData.mutationSets
+        ) {
           return <PcrReactionGrouping stepSseData={stepSseData} />;
         } else {
           return (
@@ -583,7 +591,7 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
     <div>
       {/* Tab Buttons Container with proper sticky positioning */}
       <div
-        className="sticky top-35 z-30 flex bg-white dark:bg-gray-900 shadow-sm protocol-tab-container"
+        className="sticky top-29 z-40 flex bg-white dark:bg-gray-900 shadow-sm protocol-tab-container"
         style={{
           overflowX: "auto",
           whiteSpace: "nowrap",

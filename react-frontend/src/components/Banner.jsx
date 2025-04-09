@@ -3,11 +3,11 @@ import React from "react";
 function Banner() {
   return (
     <div
-      // Removed `relative` and `z-0`. The `mt-24` pushes it down below the fixed header space.
+      // Removed `relative` and `z-0`. The `mt-18` pushes it down below the fixed header space.
       // Added Tailwind classes for background properties where possible.
       // Replaced h-[360px] for fixed height.
       // Added responsive height adjustments based on original Banner.css
-      className="w-full mt-24 flex flex-col items-center text-center text-white bg-cover bg-center h-[360px] md:h-[300px]" 
+      className="w-full mt-18 flex flex-col items-center text-center text-white bg-cover bg-center h-[360px] md:h-[300px]" 
       // Keep backgroundImage inline as Tailwind doesn't handle dynamic URLs easily out-of-the-box.
       style={{
         backgroundImage: "url('/DNA_blunt_ends.jpg')", 

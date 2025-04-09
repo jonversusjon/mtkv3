@@ -7,7 +7,7 @@ function AppHeader({ darkMode, toggleDarkMode }) {
   }, [darkMode]);
 
   return (
-    <header className="fixed top-0 left-0 z-600 box-border flex justify-between items-center w-full h-24 px-6 shadow-sm text-white bg-gradient-to-r from-indigo-900 from-10% via-gray-950 via-50% to-blue-900 to-90%">
+    <header className="fixed top-0 left-0 z-600 box-border flex justify-between items-center w-full h-18 px-6 shadow-sm text-white bg-gradient-to-r from-indigo-900 from-10% via-gray-950 via-50% to-blue-900 to-90%">
       <div className="flex items-center gap-3">
         <button
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 
@@ -23,9 +23,7 @@ function AppHeader({ darkMode, toggleDarkMode }) {
           aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
           type="button"
         >
-          <span className="text-lg">
-            {darkMode ? "☀️" : "🌙"}
-          </span>
+          <span className="text-lg">{darkMode ? "☀️" : "🌙"}</span>
           <span className="font-medium text-sm hidden sm:inline">
             {darkMode ? "Light Mode" : "Dark Mode"}
           </span>
