@@ -152,7 +152,7 @@ const RestrictionSite = ({
       id={`restriction-site-${siteIndex}`}
       className="p-4 border border-gray-300 dark:border-gray-700 rounded-sm shadow-xs dark:bg-gray-800"
     >
-      <div className="sticky top-50 z-20 bg-gray-50 dark:bg-gray-800 p-2 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-sm">
+      <div className="sticky top-50 z-20 bg-gray-50 dark:bg-gray-800 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-sm">
         <h4 className="text-lg font-semibold mb-2 dark:text-gray-200">
           Restriction Site {siteIndex + 1}: {site.siteKey}
         </h4>

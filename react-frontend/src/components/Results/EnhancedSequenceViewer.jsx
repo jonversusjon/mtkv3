@@ -125,25 +125,6 @@ const EnhancedSequenceViewer = ({
     }
   }
 
-  // Create the highlighted bases row
-  // const highlightedRow = originalRow.map((base, index) => {
-  //   const isInRS =
-  //     selectedMutation && selectedMutation.contextRsIndices
-  //       ? selectedMutation.contextRsIndices.includes(index)
-  //       : highlightIndices.includes(index);
-
-  //   return (
-  //     <span
-  //       key={`orig-${index}`}
-  //       className={`font-mono text-lg ${
-  //         isInRS ? "text-purple-600 dark:text-purple-400 font-semibold" : ""
-  //       }`}
-  //     >
-  //       {base}
-  //     </span>
-  //   );
-  // });
-
   // Prepare IDs for copy buttons
   const originalId = site
     ? `original-${site.siteKey}`
@@ -176,34 +157,35 @@ const EnhancedSequenceViewer = ({
           </button>
         </div>
       </div>
-
-      <pre className="font-mono leading-overlap-md text-lg text-white text-center whitespace-pre -mt-2">
-        {substitutionRow.map((char, i) => (
-          <span
-            key={`sub-${i}`}
-            className={char !== " " ? "text-green-400 font-semibold" : ""}
-          >
-            {char}
-          </span>
-        ))}
-      </pre>
-      <pre className="font-mono text-lg text-white text-center whitespace-pre">
-        {originalRow.map((char, i) => (
-          <span key={`orig-${i}`} className="text-gray-200">
-            {char}
-          </span>
-        ))}
-      </pre>
-      <pre className="font-mono text-lg text-white text-center whitespace-pre -mt-2">
-        {underlineRow.map((char, i) => (
-          <span
-            key={`under-${i}`}
-            className="text-red-400 font-extrabold"
-          >
-            {char === " " ? " " : char}
-          </span>
-        ))}
-      </pre>
+      <div className="relative top-2 border-1">
+        <pre
+          className="relative font-mono text-lg text-white text-center whitespace-pre -mt-2"
+        >
+          {substitutionRow.map((char, i) => (
+            <span
+              key={`sub-${i}`}
+              className={char !== " " ? "text-green-400 font-semibold" : ""}
+            >
+              {char}
+            </span>
+          ))}
+        </pre>
+        <pre className="font-mono text-lg text-white text-center whitespace-pre">
+          {originalRow.map((char, i) => (
+            <span key={`orig-${i}`} className="text-gray-200">
+              {char}
+            </span>
+          ))}
+        </pre>
+        <pre className="font-mono text-lg text-white text-center whitespace-pre -mt-2">
+          {underlineRow.map((char, i) => (
+            <span key={`under-${i}`} className="text-red-400 font-extrabold">
+              {char === " " ? " " : char}
+            </span>
+          ))}
+        </pre>
+      </div>
+      
     </div>
   );
 };
