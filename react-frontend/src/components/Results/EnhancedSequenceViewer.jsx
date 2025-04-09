@@ -21,7 +21,7 @@ import React from "react";
 const EnhancedSequenceViewer = ({
   originalSequence,
   mutatedSequence,
-  highlightIndices = [],
+  // highlightIndices = [],
   codonChanges = null,
   copyToClipboard,
   copiedStates = {},
@@ -126,23 +126,23 @@ const EnhancedSequenceViewer = ({
   }
 
   // Create the highlighted bases row
-  const highlightedRow = originalRow.map((base, index) => {
-    const isInRS =
-      selectedMutation && selectedMutation.contextRsIndices
-        ? selectedMutation.contextRsIndices.includes(index)
-        : highlightIndices.includes(index);
+  // const highlightedRow = originalRow.map((base, index) => {
+  //   const isInRS =
+  //     selectedMutation && selectedMutation.contextRsIndices
+  //       ? selectedMutation.contextRsIndices.includes(index)
+  //       : highlightIndices.includes(index);
 
-    return (
-      <span
-        key={`orig-${index}`}
-        className={`font-mono text-lg ${
-          isInRS ? "text-purple-600 dark:text-purple-400 font-semibold" : ""
-        }`}
-      >
-        {base}
-      </span>
-    );
-  });
+  //   return (
+  //     <span
+  //       key={`orig-${index}`}
+  //       className={`font-mono text-lg ${
+  //         isInRS ? "text-purple-600 dark:text-purple-400 font-semibold" : ""
+  //       }`}
+  //     >
+  //       {base}
+  //     </span>
+  //   );
+  // });
 
   // Prepare IDs for copy buttons
   const originalId = site
@@ -176,15 +176,34 @@ const EnhancedSequenceViewer = ({
           </button>
         </div>
       </div>
-      <div className="p-2 border rounded-sm bg-gray-50 dark:bg-gray-800 dark:border-gray-700 overflow-x-auto">
-        <pre className="font-mono text-lg text-green-600 dark:text-green-400 whitespace-pre">
-          {substitutionRow.join("")}
-        </pre>
-        <div className="dark:text-gray-200 select-all">{highlightedRow}</div>
-        <pre className="font-mono text-lg text-red-500 dark:text-red-400 whitespace-pre">
-          {underlineRow.join("")}
-        </pre>
-      </div>
+
+      <pre className="font-mono leading-overlap-md text-lg text-white text-center whitespace-pre -mt-2">
+        {substitutionRow.map((char, i) => (
+          <span
+            key={`sub-${i}`}
+            className={char !== " " ? "text-green-400 font-semibold" : ""}
+          >
+            {char}
+          </span>
+        ))}
+      </pre>
+      <pre className="font-mono text-lg text-white text-center whitespace-pre">
+        {originalRow.map((char, i) => (
+          <span key={`orig-${i}`} className="text-gray-200">
+            {char}
+          </span>
+        ))}
+      </pre>
+      <pre className="font-mono text-lg text-white text-center whitespace-pre -mt-2">
+        {underlineRow.map((char, i) => (
+          <span
+            key={`under-${i}`}
+            className="text-red-400 font-extrabold"
+          >
+            {char === " " ? " " : char}
+          </span>
+        ))}
+      </pre>
     </div>
   );
 };

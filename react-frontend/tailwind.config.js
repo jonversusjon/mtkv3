@@ -6,7 +6,15 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}", // Ensure this covers your file types
   ],
   theme: {
-    extend: {}, // Your theme customizations go here
+    extend: {
+      lineHeight: {
+        'overlap-sm': '0.9',
+        'overlap-md': '0.75',
+        'overlap-lg': '0.6',
+      }
+    },
   },
   plugins: [],
 };
+
+
