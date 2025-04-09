@@ -194,10 +194,8 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
       );
     }
 
-    // For debugging - log the data structure received for PCR Reaction Grouping
-    if (stepName === "PCR Reaction Grouping") {
-      console.log("PCR Reaction Grouping Data:", stepSseData);
-    }
+    // For debugging - log the data structure received
+    console.log(`TabContent rendering for step: ${stepName}`, stepSseData);
 
     // Render content based on the step
     switch (stepName) {
@@ -229,14 +227,16 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
         }
 
       case "Mutation Analysis":
+        // Pass all data to MutationExplorer - it will handle various data formats
         return (
           <MutationExplorer
             stepSseData={stepSseData}
             selectedMutationSetIndex={selectedMutationSetIndex || 0}
           />
         );
+
       case "Primer Design":
-        if (stepSseData.primers) {
+        if (stepSseData.primers || stepSseData.recommended || stepSseData.custom_primers) {
           return <PrimerExplorer stepSseData={stepSseData} />;
         } else if (
           (stepSseData.edgePrimers &&
@@ -323,13 +323,29 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
                 )}
             </div>
           );
+        } else {
+          return (
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md">
+              <p className="text-gray-600 dark:text-gray-300 text-center">
+                Waiting for primer design data...
+              </p>
+            </div>
+          );
         }
-        break;
 
       case "PCR Reaction Grouping":
         // Pass the data to our component regardless of data structure
-        // The PcrReactionGrouping component will handle parsing the data
-        return <PcrReactionGrouping stepSseData={stepSseData} />;
+        if (stepSseData.pcrReactions || stepSseData.results || stepSseData.mutationSets) {
+          return <PcrReactionGrouping stepSseData={stepSseData} />;
+        } else {
+          return (
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md">
+              <p className="text-gray-600 dark:text-gray-300 text-center">
+                Waiting for PCR reaction data...
+              </p>
+            </div>
+          );
+        }
 
       default:
         return (
@@ -551,13 +567,8 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
     }
   }, [sseData, completedSteps, activeSteps, userSelectedTab]);
 
-  // Only show tabs that are either completed or active
-  const tabsToShow = steps.filter(
-    (step) => step.status === "completed" || step.status === "active"
-  );
-
-  // Show at least 1 step, even if it's waiting
-  const displaySteps = tabsToShow.length > 0 ? tabsToShow : steps.slice(0, 1);
+  // CHANGED: Always show all steps to track progress, not just active/completed ones
+  const displaySteps = steps;
 
   // If no steps are available at all, show a loading indicator
   if (steps.length === 0) {

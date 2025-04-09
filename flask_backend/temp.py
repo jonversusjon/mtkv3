@@ -260,6 +260,8 @@ class ReactionOrganizer:
 
         # Final update with the complete results.
         send_update(
-            message="PCR Reaction Grouping Complete", prog=100, results=nested_reactions
+            message="Mutation Analysis Complete",
+            prog=100,
+            mutation_options=mutation_options,
         )
         return nested_reactions
