@@ -337,6 +337,20 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
           );
         }
 
+      case "Custom Primers":
+        // Handle automatically generated primers during protocol generation
+        if (stepSseData.custom_primers) {
+          return <PrimerExplorer stepSseData={stepSseData} />;
+        } else {
+          return (
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md">
+              <p className="text-gray-600 dark:text-gray-300 text-center">
+                Waiting for custom primer design data...
+              </p>
+            </div>
+          );
+        }
+
       case "PCR Reaction Grouping":
         // Pass the data to our component regardless of data structure
         if (

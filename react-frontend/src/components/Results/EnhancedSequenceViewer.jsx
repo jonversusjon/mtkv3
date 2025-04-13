@@ -21,7 +21,7 @@ import React from "react";
 const EnhancedSequenceViewer = ({
   originalSequence,
   mutatedSequence,
-  // highlightIndices = [],
+  highlightIndices = [],
   codonChanges = null,
   copyToClipboard,
   copiedStates = {},
@@ -31,6 +31,29 @@ const EnhancedSequenceViewer = ({
   selectedCodonOption,
 }) => {
   if (!originalSequence) return null;
+
+  // Debug: Check if site exists and log all its properties
+  console.log("DEBUG EnhancedSequenceViewer - site object exists:", !!site);
+  if (site) {
+    console.log("DEBUG EnhancedSequenceViewer - site keys:", Object.keys(site));
+    console.log("DEBUG EnhancedSequenceViewer - site object full dump:", site);
+  }
+
+  // Debug: Check selectedMutation
+  console.log(
+    "DEBUG EnhancedSequenceViewer - selectedMutation exists:",
+    !!selectedMutation
+  );
+  if (selectedMutation) {
+    console.log(
+      "DEBUG EnhancedSequenceViewer - selectedMutation keys:",
+      Object.keys(selectedMutation)
+    );
+    console.log(
+      "DEBUG EnhancedSequenceViewer - contextRsIndices:",
+      selectedMutation.contextRsIndices
+    );
+  }
 
   const substitutionRow = new Array(originalSequence.length).fill(" ");
   const underlineRow = new Array(originalSequence.length).fill(" ");
@@ -138,6 +161,39 @@ const EnhancedSequenceViewer = ({
 
   const effectiveMutatedSequence = mutatedSequence || derivedMutatedSequence;
 
+  // Determine recognition site range - improved to handle multiple data sources
+  let sitePosition;
+
+  // Try multiple methods to determine site position
+  if (site?.sitePosition !== undefined) {
+    // Direct property on site object
+    sitePosition = site.sitePosition;
+    console.log("DEBUG: Using site.sitePosition:", sitePosition);
+  } else if (site?.position !== undefined) {
+    // Alternative property name
+    sitePosition = site.position;
+    console.log("DEBUG: Using site.position:", sitePosition);
+  } else if (selectedMutation?.contextRsIndices?.length > 0) {
+    // Use the first position from context restriction site indices
+    sitePosition = Math.min(...selectedMutation.contextRsIndices);
+    console.log(
+      "DEBUG: Using selectedMutation.contextRsIndices:",
+      sitePosition
+    );
+  } else if (highlightIndices?.length > 0) {
+    // Use the first highlight index
+    sitePosition = highlightIndices[0];
+    console.log("DEBUG: Using highlightIndices[0]:", sitePosition);
+  } else {
+    // Default fallback
+    sitePosition = -1;
+    console.log("DEBUG: No position data found, using default:", sitePosition);
+  }
+
+  const recognitionSiteStart = sitePosition;
+  const recognitionSiteEnd =
+    recognitionSiteStart >= 0 ? recognitionSiteStart + 6 : -1; // Assuming 6 bases for site length
+
   return (
     <div className="mb-3 border rounded-md">
       <div className="font-medium px-2 py-1 flex justify-between items-center dark:text-gray-200">
@@ -170,11 +226,22 @@ const EnhancedSequenceViewer = ({
           ))}
         </pre>
         <pre className="font-mono text-lg text-white text-center whitespace-pre">
-          {originalRow.map((char, i) => (
-            <span key={`orig-${i}`} className="text-gray-200">
-              {char}
-            </span>
-          ))}
+          {originalRow.map((char, i) => {
+            const isRecognitionSiteBase =
+              recognitionSiteStart !== undefined &&
+              i >= recognitionSiteStart &&
+              i < recognitionSiteEnd;
+            return (
+              <span
+                key={`orig-${i}`}
+                className={
+                  isRecognitionSiteBase ? "text-blue-500" : "text-gray-200" // changed color from text-yellow-400 to text-blue-500
+                }
+              >
+                {char}
+              </span>
+            );
+          })}
         </pre>
         <pre className="relative h-6px font-mono text-lg text-white text-center whitespace-pre -mt-2">
           {underlineRow.map((char, i) => (

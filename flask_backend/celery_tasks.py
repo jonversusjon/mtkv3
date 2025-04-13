@@ -10,8 +10,6 @@ from flask_backend.logging import logger
 from flask_backend.services.utils import redis_client, get_mutation_hash
 
 from pydantic import BaseModel
-
-# Import your existing to_camel function
 from flask_backend.models.base_models import to_camel
 
 
@@ -125,6 +123,51 @@ def process_protocol_sequence(req_dict: dict, index: int):
         send_update=progress_callback
     )
 
+    # Automatically design custom primers for the best mutations
+    if result.mutation_options:
+        # Select best mutations based on codon usage
+        best_mutations = protocol_maker._select_best_mutations(result.mutation_options)
+
+        # Convert the mutation objects to selected_mutations format {site_key: codon_sequence}
+        selected_mutations = {}
+        for site_key, mutation in best_mutations.items():
+            if mutation.get("mutCodons") and len(mutation["mutCodons"]) > 0:
+                selected_mutations[site_key] = mutation["mutCodons"][
+                    0
+                ].codon.codonSequence
+
+        # Design custom primers for these mutations if we found any
+        if selected_mutations:
+            # Generate a hash for the selected mutations for caching
+            mutation_hash = get_mutation_hash(selected_mutations)
+
+            # Design primers
+            primers = protocol_maker.primer_designer.design_custom_primers(
+                selected_mutations
+            )
+
+            # Cache the designed primers
+            primers_cache_key = f"primers:{req.job_id}:{index}:{mutation_hash}"
+            redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
+
+            # Include in result
+            result.custom_primers = {
+                "primer_set": primers,
+                "selected_mutations": selected_mutations,
+            }
+
+            # Publish update
+            progress_callback(
+                step="custom_primers_step",  # Change from "Custom Primers" to a specific step name
+                message="Automatically designed custom primers for best mutations",
+                prog=100,
+                custom_primers={
+                    "primer_set": primers,
+                    "selected_mutations": selected_mutations,
+                },
+            )
+
+    print(f"Result for sequence {index}: {result}")
     return {"sequenceIdx": index, "result": result.model_dump(by_alias=True)}
 
 

@@ -13,6 +13,9 @@ const RestrictionSite = ({
   copyToClipboard,
   copiedStates,
 }) => {
+  // Debug log to check if RestrictionSite component is being rendered
+  console.log("RestrictionSite component rendering", { siteIndex, site });
+
   // Get the selected codon based on the selectedCodonOption
   const getSelectedCodon = () => {
     if (

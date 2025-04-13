@@ -50,7 +50,14 @@ def generate_protocol():
         return jsonify({"error": "No data provided"}), 400
 
     task = generate_protocol_task.delay(data)
-    return jsonify({"task_id": task.id}), 202
+
+    # Return both task ID and a message indicating primers will be automatically generated
+    return jsonify(
+        {
+            "task_id": task.id,
+            "message": "Protocol generation started - primers will be automatically designed",
+        }
+    ), 202
 
 
 @api.route("/status/<job_id>")

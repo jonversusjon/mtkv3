@@ -1,21 +1,33 @@
 from typing import List, Dict, Optional, Any
 
-from flask_backend.models import Mutation, Primer, RestrictionSite, MutationPrimerSet, NumpyArray, FrontendFriendly, FrontendNumpyFriendly
+from flask_backend.models import (
+    Mutation,
+    Primer,
+    RestrictionSite,
+    MutationPrimerSet,
+    NumpyArray,
+    FrontendFriendly,
+    FrontendNumpyFriendly,
+)
+
 
 class MutationSet(FrontendNumpyFriendly):
     alt_codons: Dict[str, Mutation]
     compatibility: NumpyArray
     mut_primer_sets: List[MutationPrimerSet] = []
 
+
 class MutationSetCollection(FrontendFriendly):
     rs_keys: List[str]
     sets: List[MutationSet]
+
 
 class PCRReaction(FrontendFriendly):
     name: str
     forward_primer: Primer
     reverse_primer: Primer
     amplicon_size: int
+
 
 class EdgePrimerPair(FrontendFriendly):
     forward: Primer
@@ -33,7 +45,11 @@ class DomesticationResult(FrontendFriendly):
     mutation_options: List[Mutation] = []
     edge_primers: EdgePrimerPair = EdgePrimerPair(forward=Primer(), reverse=Primer())
     mut_primers: List[MutationPrimerSet] = []
+    recommended_primers: List[Primer] = []
     PCR_reactions: List[PCRReaction] = []
+    custom_primers: Optional[Dict[str, Any]] = (
+        None  # Store automatically designed custom primers
+    )
     messages: List[str] = []
     errors: Optional[Any] = None
 
@@ -41,8 +57,10 @@ class DomesticationResult(FrontendFriendly):
 class MTKDomesticationProtocol(FrontendFriendly):
     result_data: Dict[int, DomesticationResult]
 
+
 class SsePayload(FrontendFriendly):
     """Model for SSE step updates"""
+
     job_id: str
     sequence_idx: int
     step: str
@@ -61,5 +79,3 @@ class SsePayload(FrontendFriendly):
     job_id: Optional[str] = None
     sequence_idx: Optional[int] = None
     callout: Optional[str] = None
-
-    

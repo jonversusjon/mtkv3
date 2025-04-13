@@ -105,18 +105,8 @@ class MutationAnalyzer:
         )
         mutation_options = {}
 
-        # Estimate total operations for tracking progress
         total_estimated_operations = self._estimate_total_mutations(restriction_sites)
         completed_operations = 0
-
-        # Helper function to update progress
-        def update_progress(message, increment, **kwargs):
-            nonlocal completed_operations
-            completed_operations += increment
-            prog = min(
-                99, int((completed_operations / total_estimated_operations) * 100)
-            )
-            send_update(message=message, prog=prog, **kwargs)
 
         try:
             send_update(
@@ -166,12 +156,26 @@ class MutationAnalyzer:
                             }
                         )
 
+                        # Integrate progress update here
+                        completed_operations += 1
+                        prog = min(
+                            99,
+                            int(
+                                (completed_operations / total_estimated_operations)
+                                * 100
+                            ),
+                        )
+                        send_update(
+                            message=f"Analyzing site {site_idx + 1}/{len(restriction_sites)}",
+                            prog=prog,
+                        )
+
                 if valid_mutations:
                     mutation_options[rs_key] = valid_mutations
 
             send_update(
                 message="Mutation Analysis Complete",
-                prog=60,
+                prog=100,
                 mutation_options=mutation_options,
             )
             return mutation_options

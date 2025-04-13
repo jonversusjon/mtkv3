@@ -115,8 +115,12 @@ class ProtocolMaker:
             if mutation_options:
                 best_mutations = self._select_best_mutations(mutation_options)
                 dom_result.recommended_primers = (
-                    self.primer_designer.design_best_primers(
-                        best_mutations, partial(send_update, step="Primer Design")
+                    self.primer_designer.design_mutation_primers(
+                        mutation_sets=best_mutations,
+                        primer_name="",
+                        max_results_str=self.max_results,
+                        send_update=partial(send_update, step="Primer Design"),
+                        batch_update_interval=1,
                     )
                 )
 

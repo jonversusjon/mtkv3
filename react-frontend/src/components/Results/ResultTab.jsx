@@ -64,7 +64,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
       "Preprocessing",
       "Restriction Sites",
       "Mutation Analysis", 
-      "Primer Design", 
+      "Primer Design",
       "PCR Reaction Grouping",
     ];
 
