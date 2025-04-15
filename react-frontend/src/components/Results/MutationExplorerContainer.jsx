@@ -44,6 +44,11 @@ const MutationExplorerContainer = ({
           group && codonSequences[optionIndex]
             ? group[codonSequences[optionIndex]].codon
             : null;
+        // Get the selected mutation for this site
+        const selectedMutation =
+          site.mutations && site.mutations.length > 0
+            ? site.mutations[0] // You may want to use a different selection logic if needed
+            : null;
 
         return (
           <RestrictionSite
@@ -51,6 +56,8 @@ const MutationExplorerContainer = ({
             site={site}
             siteIndex={siteIndex}
             selectedCodon={codon}
+            selectedCodonOption={selectedCodonOption}
+            selectedMutation={selectedMutation}
             setSelectedCodonOption={setSelectedCodonOption}
             getOriginalCodon={getOriginalCodon}
             getRecognitionSiteSequence={getRecognitionSiteSequence}
