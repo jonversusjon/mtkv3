@@ -2,39 +2,50 @@ import React from "react";
 
 const CodonPicker = ({ site, selectedCodonOption, setSelectedCodonOption }) => {
   const handleCodonSelect = (groupKey, optionIndex) => {
-    setSelectedCodonOption(site.siteKey, groupKey, optionIndex);
+    if (site && site.siteKey) {
+      setSelectedCodonOption(site.siteKey, groupKey, optionIndex);
+    }
   };
 
   // Group codons by position and remove duplicates
   const groupUniqueCodons = (site) => {
     const groups = {};
+    if (!site || !Array.isArray(site.mutations)) return groups;
     site.mutations.forEach((mutation) => {
-      if (mutation.mutCodons) {
-        mutation.mutCodons.forEach((mutCodon) => {
-          const codon = mutCodon.codon;
-          if (codon.contextPosition === undefined) return;
-          const groupKey = `Position ${codon.contextPosition}`;
-          if (!groups[groupKey]) {
-            groups[groupKey] = {};
-          }
-          const seq = codon.codonSequence;
-          if (!groups[groupKey][seq]) {
-            groups[groupKey][seq] = {
-              codon,
-              isRecommended:
-                site.recommendedMutations &&
-                site.recommendedMutations[site.siteKey] &&
-                site.recommendedMutations[site.siteKey].codon_sequence === seq,
-            };
-          }
-        });
-      }
+      if (!mutation || !Array.isArray(mutation.mutCodons)) return;
+      mutation.mutCodons.forEach((mutCodon) => {
+        if (!mutCodon || !mutCodon.codon) return;
+        const codon = mutCodon.codon;
+        if (codon.contextPosition === undefined) return;
+        const groupKey = `Position ${codon.contextPosition}`;
+        if (!groups[groupKey]) {
+          groups[groupKey] = {};
+        }
+        const seq = codon.codonSequence;
+        // More defensive checks for recommendedMutations
+        const isRecommended =
+          site.recommendedMutations &&
+          typeof site.recommendedMutations === "object" &&
+          site.siteKey &&
+          site.recommendedMutations[site.siteKey] &&
+          site.recommendedMutations[site.siteKey].codon_sequence === seq;
+        if (!groups[groupKey][seq]) {
+          groups[groupKey][seq] = {
+            codon,
+            isRecommended,
+          };
+        }
+      });
     });
     return groups;
   };
 
   const groups = groupUniqueCodons(site);
-  const currentSelection = selectedCodonOption[site.siteKey];
+  // Add defensive check for selectedCodonOption and site.siteKey
+  const currentSelection =
+    selectedCodonOption && site && site.siteKey
+      ? selectedCodonOption[site.siteKey]
+      : null;
 
   // Extract amino acid information
   const getAminoAcidForPosition = (groupKey) => {
