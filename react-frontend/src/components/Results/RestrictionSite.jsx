@@ -150,6 +150,25 @@ const RestrictionSite = ({
   console.log("Selected mutation:", selectedMutation);
   console.log("Sequence to display:", sequenceToDisplay);
 
+  // Process the site key to extract a number and display a range
+  const processedSiteKey = () => {
+    if (!site.siteKey) return "";
+    
+    // Remove underscores and the word "mutation" if it exists
+    let processedKey = site.siteKey.replace(/_/g, "").replace(/mutation/i, "");
+    
+    // Extract the numeric part
+    const numericPart = parseInt(processedKey, 10);
+    
+    // Check if it's a valid number
+    if (!isNaN(numericPart)) {
+      return `${numericPart}-${numericPart + 5}`;
+    }
+    
+    // Return original if not a valid number
+    return site.siteKey;
+  };
+
   return (
     <div
       id={`restriction-site-${siteIndex}`}
@@ -157,7 +176,7 @@ const RestrictionSite = ({
     >
       <div className="sticky top-43 z-20 bg-gray-50 dark:bg-gray-800 mb-4 border-b border-gray-300 dark:border-gray-700 shadow-sm">
         <h4 className="text-lg font-semibold mb-2 dark:text-gray-200">
-          Restriction Site {siteIndex + 1}: {site.siteKey}
+          Restriction Site {siteIndex + 1}: {processedSiteKey()}
         </h4>
 
         {/* Recognition Site Sequence Info Display */}
