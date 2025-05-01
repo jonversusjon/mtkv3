@@ -6,6 +6,7 @@ services:
     working_dir: /app
     volumes:
       - .:/app
+      - ./flask_backend/log_utils/logs:/app/flask_backend/log_utils/logs
     command: flask run --host=0.0.0.0 --reload
     environment:
       PYTHONPATH: /app
@@ -13,11 +14,10 @@ services:
       FLASK_ENV: development
       FLASK_DEBUG: "1"
       FLASK_TESTING: "true"
-      PREFILL_DATA: flask_backend.dev.prefill_data.dev_config_2
+      PREFILL_DATA: flask_backend.dev.prefill_data.dev_defaults
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_URL: redis://redis:6379/0
-
     ports:
       - "5000:5000"
     depends_on:
@@ -30,19 +30,17 @@ services:
     working_dir: /app
     volumes:
       - .:/app
-    # Auto‑restart on any *.py change under /app
+      - ./flask_backend/log_utils/logs:/app/flask_backend/log_utils/logs
     command: >
-      watchmedo auto-restart
-      --directory=/app
-      --pattern="*.py"
-      --recursive
-      -- celery -A flask_backend.celery_worker.celery worker --concurrency=4 -l INFO -f flask_backend.log_utils.celery_logs
-
+      /bin/sh -c "python -c 'import os, importlib; cfg = os.getenv(\"PREFILL_DATA\"); importlib.import_module(cfg) if cfg else None' &&
+      watchmedo auto-restart --directory=/app --pattern=*.py --recursive -- 
+      celery -A flask_backend.celery_worker.celery worker 
+      --concurrency=4 --loglevel=INFO --logfile=/app/flask_backend/log_utils/logs/celery_worker.log"
     environment:
       PYTHONPATH: /app
       FLASK_ENV: development
       FLASK_TESTING: "true"
-      PREFILL_DATA: flask_backend.dev.prefill_data.dev_config_2
+      PREFILL_DATA: flask_backend.dev.prefill_data.dev_defaults
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_URL: redis://redis:6379/0

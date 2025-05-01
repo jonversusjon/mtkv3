@@ -14,7 +14,7 @@ from flask_backend.services import GoldenGateUtils
 from flask_backend.logging import logger
 from flask_backend.celery_tasks import (
     generate_protocol_task,
-    design_custom_primers_task,
+    design_primers_task,
 )
 
 
@@ -155,9 +155,30 @@ def get_species():
 @api.route("/dummy", methods=["GET"])
 @handle_errors
 def get_dummy_data():
-    """Get active application configuration."""
-    print(f"current_app.config: {current_app.config}")
-    return jsonify(current_app.config.get("PREFILL_DATA", {}))
+    """Get dummy data for development and testing."""
+    logger.log_step("DummyHit", "dummy endpoint was called", data=None)
+
+    prefill_module = current_app.config.get("PREFILL_DATA")
+    if prefill_module:
+        # If it's a string (module path), try to import it
+        if isinstance(prefill_module, str):
+            try:
+                import importlib
+
+                module = importlib.import_module(prefill_module)
+                # Return dev_config from the module if it exists
+                if hasattr(module, "dev_config"):
+                    return jsonify(module.dev_config)
+                return jsonify({})
+            except ImportError as e:
+                logger.error(f"Failed to import module {prefill_module}: {e}")
+                return jsonify({"error": f"Failed to import module: {e}"})
+        # If it's already a module (imported earlier)
+        elif hasattr(prefill_module, "dev_config"):
+            return jsonify(prefill_module.dev_config)
+
+    # Default empty response if no valid PREFILL_DATA is found
+    return jsonify({})
 
 
 @api.route("/design_primers", methods=["POST"])
@@ -167,6 +188,7 @@ def design_primers():
     API endpoint to design primers for user-selected mutations.
     """
     data = request.json
+    logger.log_step("API", "design_primers", data)
     job_id = data.get("job_id")
     sequence_idx = data.get("sequence_idx")
     selected_mutations = data.get("selected_mutations")
@@ -175,8 +197,8 @@ def design_primers():
     if not job_id or not sequence_idx or not selected_mutations:
         return jsonify({"error": "Missing required parameters"}), 400
 
-    # Trigger custom primer design task
-    task = design_custom_primers_task.delay(job_id, sequence_idx, selected_mutations)
+    # Start the Celery task
+    task = design_primers_task.delay(job_id, sequence_idx, selected_mutations)
 
     return jsonify(
         {"status": "success", "message": "Primer design started", "task_id": task.id}

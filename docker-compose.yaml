@@ -5,7 +5,7 @@ services:
       dockerfile: flask_backend/Dockerfile
     working_dir: /app
     volumes:
-      - .:/app
+      - ./flask_backend/log_utils/logs:/app/flask_backend/log_utils/logs
     environment:
       PYTHONPATH: /app
       FLASK_ENV: production

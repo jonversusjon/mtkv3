@@ -96,7 +96,11 @@ def publish_sse(
 
 @shared_task(ignore_result=False)
 def process_protocol_sequence(req_dict: dict, index: int):
+    print(f"Processing sequence {index} with request: {req_dict}")
+    logger.log_step("TaskStart", f"processing sequence {index}", data=req_dict)
     req = ProtocolRequest.model_validate(req_dict)
+    # Cache the request dict for downstream primer design tasks
+    redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
     seq = req.sequences_to_domesticate[index]
 
     progress_callback = partial(publish_sse, job_id=req.job_id, sequence_idx=index)
@@ -188,58 +192,39 @@ def generate_protocol_task(req_dict: dict):
     }
 
 
-@shared_task(bind=True)
-def recommend_primers_task(self, job_id, sequence_idx, cache_key):
+@shared_task(ignore_result=False)
+def design_primers_task(job_id: str, sequence_idx: int, selected_mutations: dict):
     """
-    Stage 2: Recommend primers based on best mutation options.
+    Celery task to design custom primers for given selected mutations.
     """
-    # Retrieve mutation options from cache
-    mutation_options = json.loads(redis_client.get(cache_key))
-
-    # Initialize ProtocolMaker
-    protocol_maker = ProtocolMaker(...)
-
-    # Select best mutations and recommend primers
-    best_mutations = protocol_maker._select_best_mutations(mutation_options)
-    recommended_primers = protocol_maker.primer_designer.design_best_primers(
-        best_mutations, None
-    )
-
-    # Cache recommended primers
-    primers_cache_key = f"recommended_primers:{job_id}:{sequence_idx}"
-    redis_client.set(primers_cache_key, json.dumps(recommended_primers), ex=3600)
-
-    return {"status": "success", "recommended_primers": recommended_primers}
-
-
-@shared_task(bind=True)
-def design_custom_primers_task(self, job_id, sequence_idx, selected_mutations):
-    """
-    Stage 3: Design primers for user-selected mutations.
-    """
-    # Generate a hash for the selected mutations
-    mutation_hash = get_mutation_hash(selected_mutations)
-
-    # Check if primers are already cached
-    primers_cache_key = f"primers:{job_id}:{sequence_idx}:{mutation_hash}"
-    cached_primers = redis_client.get(primers_cache_key)
-    if cached_primers:
-        return {"status": "success", "primers": json.loads(cached_primers)}
-
-    # Initialize ProtocolMaker
+    # Retrieve stored request context
+    req_key = f"req:{job_id}:{sequence_idx}"
+    req_json = redis_client.get(req_key)
+    if not req_json:
+        raise ValueError(f"No request found for key {req_key}")
+    req_dict = json.loads(req_json)
+    req = ProtocolRequest.model_validate(req_dict)
+    # Initialize ProtocolMaker with original request context
     protocol_maker = ProtocolMaker(
         request_idx=sequence_idx,
-        sequence_to_domesticate=None,  # Retrieve from storage/database
-        codon_usage_dict={},  # Retrieve from storage/database
-        max_mutations=1,
-        verbose=True,
-        debug=True,
+        sequence_to_domesticate=req.sequences_to_domesticate[sequence_idx],
+        codon_usage_dict=GoldenGateUtils().get_codon_usage_dict(req.species),
+        max_mutations=req.max_mut_per_site,
+        template_seq=req.template_sequence,
+        kozak=req.kozak,
+        max_results=req.max_results,
+        verbose=req.verbose_mode,
+        job_id=f"{job_id}:{sequence_idx}",
     )
-
-    # Design primers for the selected mutations
+    # Design custom primers
     primers = protocol_maker.primer_designer.design_custom_primers(selected_mutations)
-
     # Cache the designed primers
+    mutation_hash = get_mutation_hash(selected_mutations)
+    primers_cache_key = f"primers:{job_id}:{sequence_idx}:{mutation_hash}"
     redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
-
-    return {"status": "success", "primers": primers}
+    return {
+        "jobId": job_id,
+        "sequenceIdx": sequence_idx,
+        "primers": primers,
+        "selectedMutations": selected_mutations,
+    }
