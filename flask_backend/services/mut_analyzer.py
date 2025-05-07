@@ -2,7 +2,7 @@ from typing import Dict, List
 
 from flask_backend.models import RestrictionSite, Codon, MutationCodon
 from flask_backend.services.utils import GoldenGateUtils
-from flask_backend.logging import logger
+# from flask_backend.logging import logger
 
 
 class MutationAnalyzer:
@@ -28,21 +28,21 @@ class MutationAnalyzer:
         self.verbose = verbose
         self.debug = debug
 
-        logger.log_step(
-            "Initialization",
-            f"Initializing MutationAnalyzer with verbose={verbose} and debug={debug}",
-        )
-        if self.verbose:
-            logger.log_step("Debug Mode", "Debug mode enabled for MutationAnalyzer")
-            logger.validate(
-                codon_usage_dict and isinstance(codon_usage_dict, dict),
-                "Codon usage dictionary is valid",
-            )
-            logger.validate(
-                isinstance(max_mutations, int) and max_mutations > 0,
-                f"Max mutations set to {max_mutations}",
-                {"valid_range": "1+"},
-            )
+        # logger.log_step(
+        #     "Initialization",
+        #     f"Initializing MutationAnalyzer with verbose={verbose} and debug={debug}",
+        # )
+        # if self.verbose:
+        #     logger.log_step("Debug Mode", "Debug mode enabled for MutationAnalyzer")
+        #     logger.validate(
+        #         codon_usage_dict and isinstance(codon_usage_dict, dict),
+        #         "Codon usage dictionary is valid",
+        #     )
+        #     logger.validate(
+        #         isinstance(max_mutations, int) and max_mutations > 0,
+        #         f"Max mutations set to {max_mutations}",
+        #         {"valid_range": "1+"},
+        #     )
 
     def _estimate_total_mutations(
         self, restriction_sites: List[RestrictionSite]
@@ -99,10 +99,10 @@ class MutationAnalyzer:
     def get_all_mutations(
         self, restriction_sites: List[RestrictionSite], send_update: callable
     ) -> Dict[str, List[dict]]:
-        logger.log_step(
-            "Mutation Analysis",
-            f"Starting mutation analysis for {len(restriction_sites)} site(s)",
-        )
+        # logger.log_step(
+        #     "Mutation Analysis",
+        #     f"Starting mutation analysis for {len(restriction_sites)} site(s)",
+        # )
         mutation_options = {}
 
         total_estimated_operations = self._estimate_total_mutations(restriction_sites)
@@ -181,17 +181,17 @@ class MutationAnalyzer:
             return mutation_options
 
         except Exception as e:
-            logger.error(f"Critical error in mutation analysis: {e}", exc_info=True)
+            # logger.error(f"Critical error in mutation analysis: {e}", exc_info=True)
             raise e
 
     def _calculate_sticky_ends_with_context(
         self, mutated_ctx: str, first_mut_idx: int, last_mut_idx: int
     ) -> Dict:
-        logger.log_step(
-            "Calculate Sticky Ends", "Calculating sticky ends for the mutated context"
-        )
-        logger.debug(f"first_mut_idx: {first_mut_idx}")
-        logger.debug(f"last_mut_idx: {last_mut_idx}")
+        # logger.log_step(
+        #     "Calculate Sticky Ends", "Calculating sticky ends for the mutated context"
+        # )
+        # logger.debug(f"first_mut_idx: {first_mut_idx}")
+        # logger.debug(f"last_mut_idx: {last_mut_idx}")
         sticky = {}
         for pos in sorted({first_mut_idx, last_mut_idx}):
             pos_sticky = {"top_strand": [], "bottom_strand": []}
@@ -212,10 +212,10 @@ class MutationAnalyzer:
                         {"seq": bottom, "overhang_start_index": r.start}
                     )
             sticky[f"position_{pos}"] = pos_sticky
-            logger.log_step(
-                "Sticky Ends Calculated",
-                f"Calculated sticky ends for position {pos} with {len(pos_sticky['top_strand'])} option(s)",
-            )
+            # logger.log_step(
+            #     "Sticky Ends Calculated",
+            #     f"Calculated sticky ends for position {pos} with {len(pos_sticky['top_strand'])} option(s)",
+            # )
         return sticky
 
     def _get_combined_mutated_context(

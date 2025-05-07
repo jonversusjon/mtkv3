@@ -11,7 +11,7 @@ import time
 import json
 
 from flask_backend.services import GoldenGateUtils
-from flask_backend.logging import logger
+# from flask_backend.logging import logger
 from flask_backend.celery_tasks import (
     generate_protocol_task,
     design_primers_task,
@@ -30,7 +30,7 @@ def handle_errors(f):
         try:
             return f(*args, **kwargs)
         except Exception as e:
-            logger.error(e, exc_info=True)
+            # logger.error(e, exc_info=True)
             return jsonify({"error": str(e)}), 500
 
     return decorated_function
@@ -73,9 +73,9 @@ def sse_status(job_id):
 
             # Ensure meta is a dictionary before processing.
             if not isinstance(meta, dict):
-                msg = "Value of KeyError:", meta.args[0]
+                # msg = "Value of KeyError:", meta.args[0]
 
-                logger.log_step("SSE", msg)
+                # logger.log_step("SSE", msg)
                 # Convert non-dict meta to a dict; for example, store its string representation.
                 meta = {"error": str(meta)}
 
@@ -141,7 +141,8 @@ def export_protocol():
                 f.write(f"{primer[0]}\t{primer[1]}\t{primer[2]}\n")
         return jsonify({"download_url": f"/static/exports/{filename}"})
     except IOError as e:
-        logger.error(f"Failed to write export file: {e}", exc_info=True)
+        print(e)
+        # logger.error(f"Failed to write export file: {e}", exc_info=True)
         return jsonify({"error": "Failed to create export file"}), 500
 
 
@@ -156,7 +157,7 @@ def get_species():
 @handle_errors
 def get_dummy_data():
     """Get dummy data for development and testing."""
-    logger.log_step("DummyHit", "dummy endpoint was called", data=None)
+    # logger.log_step("DummyHit", "dummy endpoint was called", data=None)
 
     prefill_module = current_app.config.get("PREFILL_DATA")
     if prefill_module:
@@ -171,7 +172,8 @@ def get_dummy_data():
                     return jsonify(module.dev_config)
                 return jsonify({})
             except ImportError as e:
-                logger.error(f"Failed to import module {prefill_module}: {e}")
+                # logger.error(f"Failed to import module {prefill_module}: {e}")
+                print(e)
                 return jsonify({"error": f"Failed to import module: {e}"})
         # If it's already a module (imported earlier)
         elif hasattr(prefill_module, "dev_config"):
@@ -188,7 +190,7 @@ def design_primers():
     API endpoint to design primers for user-selected mutations.
     """
     data = request.json
-    logger.log_step("API", "design_primers", data)
+    # logger.log_step("API", "design_primers", data)
     job_id = data.get("job_id")
     sequence_idx = data.get("sequence_idx")
     selected_mutations = data.get("selected_mutations")

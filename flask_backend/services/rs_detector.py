@@ -1,10 +1,10 @@
-import logging
+# import logging
 import re
 from typing import List, Dict
 from Bio.Seq import Seq, CodonTable
 
 from flask_backend.models import RestrictionSite, Codon
-from flask_backend.logging import logger
+# from flask_backend.logging import logger
 from flask_backend.services.utils import GoldenGateUtils
 
 class RestrictionSiteDetector():
@@ -22,7 +22,7 @@ class RestrictionSiteDetector():
         verbose: bool = False, debug: bool = False):
         self.verbose = verbose
         self.debug = debug
-        logger.log_step("Initialization", f"Initializing RestrictionSiteDetector with verbose={verbose} and debug={debug}")
+        # logger.log_step("Initialization", f"Initializing RestrictionSiteDetector with verbose={verbose} and debug={debug}")
         self.utils = GoldenGateUtils()
 
         self.codon_dict = codon_dict
@@ -45,7 +45,7 @@ class RestrictionSiteDetector():
 
         # For each enzyme, search for both forward and reverse complement matches
         for enzyme, rec_seq in recognition_sequences.items():
-            logger.log_step("Enzyme Processing", f"Processing enzyme {enzyme} with recognition sequence {rec_seq}")
+            # logger.log_step("Enzyme Processing", f"Processing enzyme {enzyme} with recognition sequence {rec_seq}")
             patterns = [
                 (rec_seq, '+', 'recognition_sequence'),
                 (str(Seq(rec_seq).reverse_complement()), '-', 'sequence')
@@ -54,13 +54,13 @@ class RestrictionSiteDetector():
                 for match in re.finditer(re.escape(pattern), seq_str):
                     found_index = match.start()
                     frame = found_index % 3
-                    logger.log_step("Match Found", f"Found {enzyme} match at index {found_index} on strand {strand} with frame {frame}")
+                    # logger.log_step("Match Found", f"Found {enzyme} match at index {found_index} on strand {strand} with frame {frame}")
                     
                     # Extract context (30bp upstream and downstream)
                     start_context = max(0, found_index - 30)
                     end_context = min(len(seq_str), found_index + len(pattern) + 30)
                     context_seq = seq_str[start_context:end_context]
-                    logger.log_step("Context Extraction", f"Extracted context from {start_context} to {end_context}")
+                    # logger.log_step("Context Extraction", f"Extracted context from {start_context} to {end_context}")
 
                     relative_index = found_index - start_context
                     codons = self.get_codons(context_seq, relative_index, frame)
@@ -81,10 +81,10 @@ class RestrictionSiteDetector():
                     )
                     
                     restriction_sites.append(restriction_site)
-                    logger.log_step("Site Added", f"Added site at position {found_index} for enzyme {enzyme}")
+                    # logger.log_step("Site Added", f"Added site at position {found_index} for enzyme {enzyme}")
 
         restriction_sites.sort(key=lambda site: site.position)
-        logger.log_step("Result", f"Total sites found: {len(restriction_sites)}")
+        # logger.log_step("Result", f"Total sites found: {len(restriction_sites)}")
                 
         if restriction_sites:
             send_update(
@@ -105,7 +105,7 @@ class RestrictionSiteDetector():
         immediately stores a tuple (of 0s and 1s) for each codon indicating which 
         bases are within the restriction enzyme recognition site.
         """
-        logger.log_step("Codon Extraction", f"Extracting codons from context sequence with recognition_start_index={recognition_start_index} and frame={frame}")
+        # logger.log_step("Codon Extraction", f"Extracting codons from context sequence with recognition_start_index={recognition_start_index} and frame={frame}")
         codons = []
         translation_table = CodonTable.unambiguous_dna_by_id[1]
 
@@ -144,7 +144,7 @@ class RestrictionSiteDetector():
                 [0, 1]      # third codon: only positions 0 and 1 are in the site
             ]
         else:
-            logger.log_step("Codon Extraction", f"Invalid frame {frame} encountered, returning empty codon list", level=logging.WARNING)
+            # logger.log_step("Codon Extraction", f"Invalid frame {frame} encountered, returning empty codon list", level=logging.WARNING)
             return []
 
         # Iterate through codon positions and create Codon objects with the appropriate overlap tuple.
@@ -165,9 +165,9 @@ class RestrictionSiteDetector():
                     usage=usage,
                 )
                 codons.append(codon)
-                logger.log_step("Codon Processed", f"Processed codon {codon_seq} at position {pos} with overlap {overlap}")
-            else:
-                logger.log_step("Codon Skipped", f"Skipping codon at position {pos} due to insufficient length", level=logging.WARNING)
+            #     logger.log_step("Codon Processed", f"Processed codon {codon_seq} at position {pos} with overlap {overlap}")
+            # else:
+            #     logger.log_step("Codon Skipped", f"Skipping codon at position {pos} due to insufficient length", level=logging.WARNING)
 
-        logger.log_step("Codon Extraction", f"Extracted {len(codons)} codon(s) from context sequence")
+        # logger.log_step("Codon Extraction", f"Extracted {len(codons)} codon(s) from context sequence")
         return codons

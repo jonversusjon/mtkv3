@@ -6,7 +6,7 @@ from celery import shared_task, group
 from flask_sse import sse
 from flask_backend.services import GoldenGateUtils, ProtocolMaker
 from flask_backend.models import ProtocolRequest, DomesticationResult, FrontendFriendly
-from flask_backend.logging import logger
+# from flask_backend.logging import logger
 from flask_backend.services.utils import redis_client, get_mutation_hash
 
 from pydantic import BaseModel
@@ -74,10 +74,10 @@ def publish_sse(
     if prog is not None:
         payload["stepProgress"] = prog
 
-    logger.log_step(
-        "SSE Publish",
-        f"Publishing to channel {channel}: {json.dumps(payload, default=str)}",
-    )
+    # logger.log_step(
+    #     "SSE Publish",
+    #     f"Publishing to channel {channel}: {json.dumps(payload, default=str)}",
+    # )
 
     try:
         # Verify the payload is serializable
@@ -97,18 +97,18 @@ def publish_sse(
 @shared_task(ignore_result=False)
 def process_protocol_sequence(req_dict: dict, index: int):
     print(f"Processing sequence {index} with request: {req_dict}")
-    logger.log_step("TaskStart", f"processing sequence {index}", data=req_dict)
+    # logger.log_step("TaskStart", f"processing sequence {index}", data=req_dict)
     req = ProtocolRequest.model_validate(req_dict)
     # Cache the request dict for downstream primer design tasks
     redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
     seq = req.sequences_to_domesticate[index]
 
     progress_callback = partial(publish_sse, job_id=req.job_id, sequence_idx=index)
-    if index == 1:
-        logger.log_step(
-            "SSE Publish",
-            f"Setting up task for channel 1 job_{req.job_id}_{index}: {json.dumps({'jobId': req.job_id, 'sequenceIdx': index, 'step': 'start', 'message': 'Starting protocol generation'})}",
-        )
+    # if index == 1:
+    #     logger.log_step(
+    #         "SSE Publish",
+    #         f"Setting up task for channel 1 job_{req.job_id}_{index}: {json.dumps({'jobId': req.job_id, 'sequenceIdx': index, 'step': 'start', 'message': 'Starting protocol generation'})}",
+    #     )
 
     protocol_maker = ProtocolMaker(
         request_idx=index,

@@ -14,7 +14,7 @@ from Bio.Seq import Seq
 from prettytable import PrettyTable
 
 from flask_backend.models import RestrictionSite
-from flask_backend.logging import logger
+# from flask_backend.logging import logger
 
 # Initialize Redis client
 redis_client = redis.Redis(
@@ -39,10 +39,10 @@ class GoldenGateUtils:
             with open(filepath, "r") as file:
                 return json.load(file)
         except FileNotFoundError:
-            logger.error(f"File not found: {filepath}")
+            # logger.error(f"File not found: {filepath}")
             return None
         except json.JSONDecodeError:
-            logger.error(f"Invalid JSON format in: {filepath}")
+            # logger.error(f"Invalid JSON format in: {filepath}")
             return None
 
     @lru_cache(maxsize=10)
@@ -53,7 +53,7 @@ class GoldenGateUtils:
             with open(filename, "r") as f:
                 return json.load(f)
         except FileNotFoundError:
-            logger.error(f"Codon usage table not found for species: {species}")
+            # logger.error(f"Codon usage table not found for species: {species}")
             return None
 
     @lru_cache(maxsize=1)
@@ -100,7 +100,7 @@ class GoldenGateUtils:
             return [
                 f[:-5] for f in os.listdir(self.codon_tables_dir) if f.endswith(".json")
             ]
-        logger.warning("Codon usage tables directory not found")
+        # logger.warning("Codon usage tables directory not found")
         return []
 
     def reverse_complement(self, seq: str) -> str:
@@ -155,15 +155,15 @@ class GoldenGateUtils:
         compatibility_bits = np.unpackbits(np.frombuffer(binary_data, dtype=np.uint8))
         compatibility_matrix = compatibility_bits.reshape(256, 256)
 
-        if self.verbose:
-            logger.log_step(
-                "",
-                f"Loaded compatibility matrix with shape: {compatibility_matrix.shape}",
-            )
-            logger.log_step(
-                "", f"Number of compatible pairs: {np.sum(compatibility_matrix)}"
-            )
-            logger.log_step("", f"Matrix density: {np.mean(compatibility_matrix):.2%}")
+        # if self.verbose:
+        #     logger.log_step(
+        #         "",
+        #         f"Loaded compatibility matrix with shape: {compatibility_matrix.shape}",
+        #     )
+        #     logger.log_step(
+        #         "", f"Number of compatible pairs: {np.sum(compatibility_matrix)}"
+        #     )
+        #     logger.log_step("", f"Matrix density: {np.mean(compatibility_matrix):.2%}")
 
         return compatibility_matrix
 
@@ -226,11 +226,11 @@ class GoldenGateUtils:
     def calculate_optimal_primer_length(
         self, sequence: str, position: int, direction="forward"
     ) -> int:
-        logger.log_step(
-            "Calculate Primer Length",
-            f"Optimal {direction} primer from pos {position}",
-            {"sequence_length": len(sequence)},
-        )
+        # logger.log_step(
+        #     "Calculate Primer Length",
+        #     f"Optimal {direction} primer from pos {position}",
+        #     {"sequence_length": len(sequence)},
+        # )
         min_length, max_length, target_tm = 18, 30, 60
         optimal_length = min_length
 
@@ -240,11 +240,11 @@ class GoldenGateUtils:
             ):
                 primer_seq = sequence[position : position + length]
                 tm = self.calculate_tm(primer_seq)
-                logger.log_step(
-                    "Length Iteration",
-                    f"Length {length}",
-                    {"tm": tm, "target": target_tm},
-                )
+                # logger.log_step(
+                #     "Length Iteration",
+                #     f"Length {length}",
+                #     {"tm": tm, "target": target_tm},
+                # )
                 if tm >= target_tm:
                     optimal_length = length
                     break
@@ -254,24 +254,24 @@ class GoldenGateUtils:
                     break
                 primer_seq = sequence[position - length : position]
                 tm = self.calculate_tm(primer_seq)
-                logger.log_step(
-                    "Length Iteration",
-                    f"Length {length}",
-                    {"tm": tm, "target": target_tm},
-                )
+                # logger.log_step(
+                #     "Length Iteration",
+                #     f"Length {length}",
+                #     {"tm": tm, "target": target_tm},
+                # )
                 if tm >= target_tm:
                     optimal_length = length
                     break
 
-        logger.validate(
-            optimal_length >= min_length,
-            f"Calculated optimal primer length: {optimal_length}",
-            {
-                "direction": direction,
-                "min_length": min_length,
-                "max_length": max_length,
-            },
-        )
+        # logger.validate(
+        #     optimal_length >= min_length,
+        #     f"Calculated optimal primer length: {optimal_length}",
+        #     {
+        #         "direction": direction,
+        #         "min_length": min_length,
+        #         "max_length": max_length,
+        #     },
+        # )
         return optimal_length
 
     def calculate_tm(self, sequence: str) -> float:
@@ -319,7 +319,7 @@ class GoldenGateUtils:
                 # If primer_data is provided, write it directly
                 if primer_data is not None:
                     if not primer_data:
-                        logger.warning("No primer data to save.")
+                        # logger.warning("No primer data to save.")
                         return
                     for row in primer_data:
                         writer.writerow(list(map(str, row)))
@@ -332,15 +332,16 @@ class GoldenGateUtils:
                     for name, sequence in reverse_primers:
                         writer.writerow([name, sequence, assembly_message])
                 else:
-                    logger.error("Insufficient primer data provided.")
+                    # logger.error("Insufficient primer data provided.")
                     raise ValueError(
                         "Either primer_data or both forward_primers and reverse_primers must be provided."
                     )
 
-            logger.log_step("", f"Primers exported to {output_tsv_path}")
+            # logger.log_step("", f"Primers exported to {output_tsv_path}")
         except IOError as e:
-            logger.error(f"Error writing to file {output_tsv_path}: {e}")
-            raise
+            # logger.error(f"Error writing to file {output_tsv_path}: {e}")
+            raise(e)
+            
 
     def get_nested_keys(self, item, prefix="", depth=0, max_depth=100):
         """Recursively collect keys from dictionaries and lists."""
@@ -506,8 +507,8 @@ class GoldenGateUtils:
             positions = ", ".join(str(site.position + 1) for site in sites)
             table.add_row([enzyme_desc, len(sites), positions])
 
-        logger.log_step("", "\nRestriction Site Analysis Summary:")
-        logger.log_step("", f"\n{table}")
+        # logger.log_step("", "\nRestriction Site Analysis Summary:")
+        # logger.log_step("", f"\n{table}")
 
     def calculate_amplicon_size(
         self, forward_primer_seq: str, reverse_primer_seq: str, sequence: str

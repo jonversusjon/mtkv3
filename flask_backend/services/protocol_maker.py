@@ -16,7 +16,7 @@ from flask_backend.services import (
     ReactionOrganizer,
 )
 from flask_backend.services.utils import GoldenGateUtils
-from flask_backend.logging import logger
+# from flask_backend.logging import logger
 
 
 class ProtocolMaker:
@@ -59,13 +59,13 @@ class ProtocolMaker:
             debug=True,
         )
 
-        logger.debug(
-            f"Protocol maker for sequence {request_idx + 1} initialized with codon_usage_dict: {codon_usage_dict}"
-        )
-        if verbose:
-            logger.log_step(
-                "Verbose Mode", "Protocol maker is running in verbose mode."
-            )
+        # logger.debug(
+        #     f"Protocol maker for sequence {request_idx + 1} initialized with codon_usage_dict: {codon_usage_dict}"
+        # )
+        # if verbose:
+            # logger.log_step(
+            #     "Verbose Mode", "Protocol maker is running in verbose mode."
+            # )
 
         self.request_idx = request_idx
         self.seq_to_dom: SequenceToDomesticate = sequence_to_domesticate
@@ -82,7 +82,7 @@ class ProtocolMaker:
         """
         Main function to orchestrate the Golden Gate protocol creation in stages.
         """
-        logger.log_step("Protocol Start", f"Processing sequence {self.request_idx + 1}")
+        # logger.log_step("Protocol Start", f"Processing sequence {self.request_idx + 1}")
         dom_result = DomesticationResult(
             sequence_index=self.request_idx,
             mtk_part_left=self.seq_to_dom.mtk_part_left,
