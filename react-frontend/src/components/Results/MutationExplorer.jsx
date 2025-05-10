@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-toastify";
-import { designPrimers } from "../../api/goldenGateApi";
+import { designPrimers } from "../../api/api";
 import MutationExplorerContainer from "./MutationExplorerContainer";
 import {
   groupUniqueCodons,

@@ -4,6 +4,7 @@ import importlib.util
 from flask import Flask, send_from_directory, jsonify, redirect
 from flask_cors import CORS
 
+
 from flask_backend.settings.config import DevelopmentConfig, ProductionConfig
 from flask_backend.celery_app import celery_init_app
 from flask_backend.routes import api, main
@@ -34,8 +35,14 @@ def load_prefill_data(env_var="PREFILL_DATA") -> dict:
 
 
 def create_app(config_override=None):
+    from flask_backend.logger.setup import setup_logging
+    
+    setup_logging()
     app = Flask(__name__)
 
+    logger = logging.getLogger("flask_backend")
+    logger.info("Starting Flask app...")
+    
     config_path = config_override or os.getenv("CONFIG_OVERRIDE")
     if config_path:
         app.config.from_object(config_path)

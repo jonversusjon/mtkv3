@@ -1,9 +1,11 @@
+import logging
 from typing import Dict, List
 
 from flask_backend.models import RestrictionSite, Codon, MutationCodon
 from flask_backend.services.utils import GoldenGateUtils
-# from flask_backend.logging import logger
 
+# Get a logger instance for this module
+module_logger = logging.getLogger("flask_backend.services.mut_analyzer") # Renamed to avoid conflict if 'logger' is used as a var name
 
 class MutationAnalyzer:
     """
@@ -28,16 +30,17 @@ class MutationAnalyzer:
         self.verbose = verbose
         self.debug = debug
 
-        # logger.log_step(
-        #     "Initialization",
-        #     f"Initializing MutationAnalyzer with verbose={verbose} and debug={debug}",
-        # )
+        module_logger.info(
+            f"Initializing MutationAnalyzer with verbose={verbose} and debug={debug}"
+        )
         # if self.verbose:
         #     logger.log_step("Debug Mode", "Debug mode enabled for MutationAnalyzer")
         #     logger.validate(
         #         codon_usage_dict and isinstance(codon_usage_dict, dict),
         #         "Codon usage dictionary is valid",
         #     )
+        
+        
         #     logger.validate(
         #         isinstance(max_mutations, int) and max_mutations > 0,
         #         f"Max mutations set to {max_mutations}",

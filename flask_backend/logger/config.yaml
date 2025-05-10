@@ -1,0 +1,52 @@
+version: 1
+disable_existing_loggers: False
+
+formatters:
+  default:
+    format: "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
+  context:
+    format: "[%(asctime)s] %(levelname)s %(name)s: [%(task_id)s] %(message)s"
+
+filters:
+  celery_context:
+    (): flask_backend.logger.setup.TaskContextFilter
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: default
+    stream: ext://sys.stdout
+
+  file:
+    class: logging.FileHandler
+    level: INFO
+    formatter: default
+    filename: flask_backend/log_utils/logs/app.log
+
+  celery_file:
+    class: logging.FileHandler
+    level: INFO
+    formatter: context
+    filters: [celery_context]
+    filename: flask_backend/log_utils/logs/celery.log
+
+loggers:
+  flask_backend.celery:
+    level: INFO
+    handlers: [celery_file]
+    propagate: no
+
+  flask_backend:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: no
+
+  celery_tasks:
+    level: DEBUG
+    handlers: [console, celery_file]
+    propagate: no
+
+root:
+  level: WARNING
+  handlers: [console]

@@ -1,10 +1,13 @@
 from flask_backend.app import create_app
+from flask_backend.celery_app import celery_init_app
+
 from celery.signals import after_setup_logger, after_setup_task_logger
 import logging
 
 
 # Build the Flask app (this reads your ENV vars, including CELERY_BROKER_URL)
 flask_app = create_app()
+celery = celery_init_app(flask_app)
 
 # Grab the Celery instance that create_app() already set up.
 celery = flask_app.extensions["celery"]

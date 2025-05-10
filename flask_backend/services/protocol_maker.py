@@ -63,9 +63,9 @@ class ProtocolMaker:
         #     f"Protocol maker for sequence {request_idx + 1} initialized with codon_usage_dict: {codon_usage_dict}"
         # )
         # if verbose:
-            # logger.log_step(
-            #     "Verbose Mode", "Protocol maker is running in verbose mode."
-            # )
+        # logger.log_step(
+        #     "Verbose Mode", "Protocol maker is running in verbose mode."
+        # )
 
         self.request_idx = request_idx
         self.seq_to_dom: SequenceToDomesticate = sequence_to_domesticate
@@ -83,6 +83,16 @@ class ProtocolMaker:
         Main function to orchestrate the Golden Gate protocol creation in stages.
         """
         # logger.log_step("Protocol Start", f"Processing sequence {self.request_idx + 1}")
+
+        # Use primer_name as identifier, or fallback to sequence index if not available
+        sequence_identifier = getattr(
+            self.seq_to_dom, "primer_name", f"Sequence_{self.request_idx + 1}"
+        )
+
+        print(
+            f"Processing sequence {self.request_idx + 1} with name: {sequence_identifier}"
+        )
+
         dom_result = DomesticationResult(
             sequence_index=self.request_idx,
             mtk_part_left=self.seq_to_dom.mtk_part_left,
@@ -95,6 +105,7 @@ class ProtocolMaker:
             self.seq_to_dom.mtk_part_left,
             partial(send_update, step="Preprocessing"),
         )
+        print(f"Processed sequence: {processed_seq}")
         if not valid_seq:
             return dom_result
         dom_result.processed_sequence = str(processed_seq)
@@ -103,12 +114,13 @@ class ProtocolMaker:
             processed_seq, partial(send_update, step="Restriction Sites")
         )
         dom_result.restriction_sites = restriction_sites
-
+        print(f"Restriction sites: {restriction_sites}")
         if restriction_sites:
             # Stage 2: Mutation Analysis
             mutation_options = self.mutation_analyzer.get_all_mutations(
                 restriction_sites, partial(send_update, step="Mutation Analysis")
             )
+            print(f"Mutation options: {mutation_options}")
             dom_result.mutation_options = mutation_options
 
             # Stage 3: Primer Design (Background)

@@ -6,6 +6,7 @@ from celery import shared_task, group
 from flask_sse import sse
 from flask_backend.services import GoldenGateUtils, ProtocolMaker
 from flask_backend.models import ProtocolRequest, DomesticationResult, FrontendFriendly
+
 # from flask_backend.logging import logger
 from flask_backend.services.utils import redis_client, get_mutation_hash
 
@@ -96,100 +97,147 @@ def publish_sse(
 
 @shared_task(ignore_result=False)
 def process_protocol_sequence(req_dict: dict, index: int):
-    print(f"Processing sequence {index} with request: {req_dict}")
-    # logger.log_step("TaskStart", f"processing sequence {index}", data=req_dict)
-    req = ProtocolRequest.model_validate(req_dict)
-    # Cache the request dict for downstream primer design tasks
-    redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
-    seq = req.sequences_to_domesticate[index]
+    print(f"[START] Process protocol sequence {index}")
+    try:
+        # print(f"Processing sequence {index} with request: {req_dict}")
+        # logger.log_step("TaskStart", f"processing sequence {index}", data=req_dict)
+        req = ProtocolRequest.model_validate(req_dict)
+        print(f"Processing sequence {index} with request: {req}")
 
-    progress_callback = partial(publish_sse, job_id=req.job_id, sequence_idx=index)
-    # if index == 1:
-    #     logger.log_step(
-    #         "SSE Publish",
-    #         f"Setting up task for channel 1 job_{req.job_id}_{index}: {json.dumps({'jobId': req.job_id, 'sequenceIdx': index, 'step': 'start', 'message': 'Starting protocol generation'})}",
-    #     )
+        # Cache the request dict for downstream primer design tasks
+        try:
+            redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
+            print(f"Cached request for job {req.job_id} and sequence {index}")
+        except Exception as e:
+            print(f"Redis caching error for request {req.job_id}:{index}: {str(e)}")
+            # Continue even if caching fails
 
-    protocol_maker = ProtocolMaker(
-        request_idx=index,
-        sequence_to_domesticate=seq,
-        codon_usage_dict=GoldenGateUtils().get_codon_usage_dict(req.species),
-        max_mutations=req.max_mut_per_site,
-        template_seq=req.template_sequence,
-        kozak=req.kozak,
-        max_results=req.max_results,
-        verbose=req.verbose_mode,
-        job_id=f"{req.job_id}_{index}",
-    )
+        seq = req.sequences_to_domesticate[index]
+        print(f"Processing sequence {index} with seq: {seq}")
+        progress_callback = partial(publish_sse, job_id=req.job_id, sequence_idx=index)
 
-    # Execute protocol and explicitly serialize result.
-    result: DomesticationResult = protocol_maker.create_gg_protocol(
-        send_update=progress_callback
-    )
+        # Create the protocol maker with a try-except block
+        try:
+            protocol_maker = ProtocolMaker(
+                request_idx=index,
+                sequence_to_domesticate=seq,
+                codon_usage_dict=GoldenGateUtils().get_codon_usage_dict(req.species),
+                max_mutations=req.max_mut_per_site,
+                template_seq=req.template_sequence,
+                kozak=req.kozak,
+                max_results=req.max_results,
+                verbose=req.verbose_mode,
+                job_id=f"{req.job_id}_{index}",
+            )
+            print(f"Created ProtocolMaker for sequence {index}")
+        except Exception as e:
+            print(f"Error creating ProtocolMaker for sequence {index}: {str(e)}")
+            raise
 
-    # Automatically design custom primers for the best mutations
-    if result.mutation_options:
-        # Select best mutations based on codon usage
-        best_mutations = protocol_maker._select_best_mutations(result.mutation_options)
+        # Execute protocol with error handling
+        print(f"Starting protocol creation for sequence {index}")
+        try:
+            result = protocol_maker.create_gg_protocol(send_update=progress_callback)
+            print(f"Completed protocol creation for sequence {index}")
+        except Exception as e:
+            print(f"Error in create_gg_protocol for sequence {index}: {str(e)}")
+            raise
 
-        # Convert the mutation objects to selected_mutations format {site_key: codon_sequence}
-        selected_mutations = {}
-        for site_key, mutation in best_mutations.items():
-            if mutation.get("mutCodons") and len(mutation["mutCodons"]) > 0:
-                selected_mutations[site_key] = mutation["mutCodons"][
-                    0
-                ].codon.codonSequence
-
-        # Design custom primers for these mutations if we found any
-        if selected_mutations:
-            # Generate a hash for the selected mutations for caching
-            mutation_hash = get_mutation_hash(selected_mutations)
-
-            # Design primers
-            primers = protocol_maker.primer_designer.design_custom_primers(
-                selected_mutations
+        # Automatically design custom primers for the best mutations
+        if result.mutation_options:
+            # Select best mutations based on codon usage
+            best_mutations = protocol_maker._select_best_mutations(
+                result.mutation_options
             )
 
-            # Cache the designed primers
-            primers_cache_key = f"primers:{req.job_id}:{index}:{mutation_hash}"
-            redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
+            # Convert the mutation objects to selected_mutations format {site_key: codon_sequence}
+            selected_mutations = {}
+            for site_key, mutation in best_mutations.items():
+                if mutation.get("mutCodons") and len(mutation["mutCodons"]) > 0:
+                    selected_mutations[site_key] = mutation["mutCodons"][
+                        0
+                    ].codon.codonSequence
 
-            # Include in result
-            result.custom_primers = {
-                "primer_set": primers,
-                "selected_mutations": selected_mutations,
-            }
+            # Design custom primers for these mutations if we found any
+            if selected_mutations:
+                # Generate a hash for the selected mutations for caching
+                mutation_hash = get_mutation_hash(selected_mutations)
 
-            # Publish update
-            progress_callback(
-                step="custom_primers_step",  # Change from "Custom Primers" to a specific step name
-                message="Automatically designed custom primers for best mutations",
-                prog=100,
-                custom_primers={
+                # Design primers
+                primers = protocol_maker.primer_designer.design_custom_primers(
+                    selected_mutations
+                )
+
+                # Cache the designed primers
+                primers_cache_key = f"primers:{req.job_id}:{index}:{mutation_hash}"
+                redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
+
+                # Include in result
+                result.custom_primers = {
                     "primer_set": primers,
                     "selected_mutations": selected_mutations,
-                },
-            )
+                }
 
-    print(f"Result for sequence {index}: {result}")
-    return {"sequenceIdx": index, "result": result.model_dump(by_alias=True)}
+                # Publish update
+                progress_callback(
+                    step="custom_primers_step",  # Change from "Custom Primers" to a specific step name
+                    message="Automatically designed custom primers for best mutations",
+                    prog=100,
+                    custom_primers={
+                        "primer_set": primers,
+                        "selected_mutations": selected_mutations,
+                    },
+                )
+
+        print(f"Result for sequence {index}: {result}")
+        return {"sequenceIdx": index, "result": result.model_dump(by_alias=True)}
+
+    except Exception as e:
+        print(f"[ERROR] Failed processing sequence {index}: {str(e)}")
+        import traceback
+
+        print(traceback.format_exc())
+        # Re-raise to mark the task as failed
+        raise
 
 
 @shared_task(ignore_result=False)
 def generate_protocol_task(req_dict: dict):
-    req = ProtocolRequest.model_validate(req_dict)
-    total_sequences = len(req.sequences_to_domesticate)
-
-    tasks = group(
-        process_protocol_sequence.s(req_dict, idx) for idx in range(total_sequences)
+    print(
+        f"[START] Generate protocol task with {len(req_dict.get('sequences_to_domesticate', []))} sequences"
     )
-    group_result = tasks.apply_async()
+    try:
+        req = ProtocolRequest.model_validate(req_dict)
+        total_sequences = len(req.sequences_to_domesticate)
+        print(f"Creating task group for {total_sequences} sequences")
 
-    return {
-        "status": "started",
-        "group_task_id": group_result.id,
-        "total": total_sequences,
-    }
+        tasks = group(
+            process_protocol_sequence.s(req_dict, idx) for idx in range(total_sequences)
+        )
+        group_result = tasks.apply_async()
+
+        print(f"Task group created with ID: {group_result.id}")
+
+        # Monitor initial task status
+        from celery.result import GroupResult
+
+        result = GroupResult.restore(group_result.id)
+        if result:
+            print(
+                f"Group task status: {result.completed_count()}/{len(result.children)} completed"
+            )
+
+        return {
+            "status": "started",
+            "group_task_id": group_result.id,
+            "total": total_sequences,
+        }
+    except Exception as e:
+        print(f"[ERROR] Failed to generate protocol: {str(e)}")
+        import traceback
+
+        print(traceback.format_exc())
+        raise
 
 
 @shared_task(ignore_result=False)
@@ -199,10 +247,15 @@ def design_primers_task(job_id: str, sequence_idx: int, selected_mutations: dict
     """
     # Retrieve stored request context
     req_key = f"req:{job_id}:{sequence_idx}"
-    req_json = redis_client.get(req_key)
-    if not req_json:
-        raise ValueError(f"No request found for key {req_key}")
-    req_dict = json.loads(req_json)
+    try:
+        req_json = redis_client.get(req_key)
+        if not req_json:
+            raise ValueError(f"No request found for key {req_key}")
+        req_dict = json.loads(req_json)
+    except Exception as e:
+        print(f"Redis retrieval error for {req_key}: {str(e)}")
+        raise ValueError(f"Failed to retrieve request data: {str(e)}")
+
     req = ProtocolRequest.model_validate(req_dict)
     # Initialize ProtocolMaker with original request context
     protocol_maker = ProtocolMaker(
@@ -218,10 +271,16 @@ def design_primers_task(job_id: str, sequence_idx: int, selected_mutations: dict
     )
     # Design custom primers
     primers = protocol_maker.primer_designer.design_custom_primers(selected_mutations)
+
     # Cache the designed primers
-    mutation_hash = get_mutation_hash(selected_mutations)
-    primers_cache_key = f"primers:{job_id}:{sequence_idx}:{mutation_hash}"
-    redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
+    try:
+        mutation_hash = get_mutation_hash(selected_mutations)
+        primers_cache_key = f"primers:{job_id}:{sequence_idx}:{mutation_hash}"
+        redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
+    except Exception as e:
+        print(f"Redis caching error for primers: {str(e)}")
+        # Continue execution even if caching fails
+
     return {
         "jobId": job_id,
         "sequenceIdx": sequence_idx,
