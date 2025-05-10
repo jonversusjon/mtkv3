@@ -137,7 +137,7 @@ def process_protocol_sequence(req_dict: dict, index: int):
         # Execute protocol with error handling
         print(f"Starting protocol creation for sequence {index}")
         try:
-            result = protocol_maker.create_gg_protocol(send_update=progress_callback)
+            result: DomesticationResult = protocol_maker.create_gg_protocol(send_update=progress_callback)
             print(f"Completed protocol creation for sequence {index}")
         except Exception as e:
             print(f"Error in create_gg_protocol for sequence {index}: {str(e)}")

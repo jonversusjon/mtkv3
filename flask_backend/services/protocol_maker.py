@@ -6,6 +6,8 @@ from functools import partial
 from flask_backend.models import (
     DomesticationResult,
     SequenceToDomesticate,
+    MutationSet,
+    MutationSetCollection,
 )
 from flask_backend.services import (
     SequencePreparator,
@@ -126,9 +128,30 @@ class ProtocolMaker:
             # Stage 3: Primer Design (Background)
             if mutation_options:
                 best_mutations = self._select_best_mutations(mutation_options)
+
+                # Convert best_mutations dictionary to a MutationSetCollection object
+                # Get the restriction site keys (rs_keys)
+                rs_keys = list(best_mutations.keys())
+
+                # Create a MutationSet object with the best mutations
+                mutation_set = MutationSet(
+                    alt_codons=best_mutations,
+                    compatibility=[
+                        [1]
+                    ],  # Simple compatibility matrix for single best mutations
+                    mut_primer_sets=[],
+                )
+
+                # Create the MutationSetCollection
+                mutation_collection = MutationSetCollection(
+                    rs_keys=rs_keys, sets=[mutation_set]
+                )
+
+                print(f"Created MutationSetCollection with rs_keys: {rs_keys}")
+
                 dom_result.recommended_primers = (
                     self.primer_designer.design_mutation_primers(
-                        mutation_sets=best_mutations,
+                        mutation_sets=mutation_collection,
                         primer_name="",
                         max_results_str=self.max_results,
                         send_update=partial(send_update, step="Primer Design"),
