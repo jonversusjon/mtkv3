@@ -11,12 +11,6 @@ import time
 import json
 
 from flask_backend.services import GoldenGateUtils
-# from flask_backend.logging import logger
-from flask_backend.celery_tasks import (
-    generate_protocol_task,
-    design_primers_task,
-)
-
 
 api = Blueprint("api", __name__, url_prefix="/api")
 utils = GoldenGateUtils()
@@ -49,7 +43,10 @@ def generate_protocol():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    task = generate_protocol_task.delay(data)
+    celery = get_celery_instance()
+    task = celery.send_task(
+        "flask_backend.celery_tasks.generate_protocol_task", args=[data]
+    )
 
     # Return both task ID and a message indicating primers will be automatically generated
     return jsonify(
@@ -93,8 +90,8 @@ def sse_status(job_id):
                     )
                     for k, v in meta.items()
                 }
+                meta["error"] = str(e)
                 data = json.dumps(meta)
-                data["error"] = str(e)
 
             yield f"data: {data}\n\n"
             if state in ["SUCCESS", "FAILURE"]:
@@ -131,7 +128,7 @@ def export_protocol():
     if not primers:
         return jsonify({"error": "No primers to export"}), 400
 
-    filename = f"primers_{utils.generate_unique_id()}.tsv"
+    filename = f"primers_{int(time.time())}.tsv"
     filepath = f"static/exports/{filename}"
 
     try:
@@ -190,6 +187,9 @@ def design_primers():
     API endpoint to design primers for user-selected mutations.
     """
     data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
     # logger.log_step("API", "design_primers", data)
     job_id = data.get("job_id")
     sequence_idx = data.get("sequence_idx")
@@ -200,7 +200,11 @@ def design_primers():
         return jsonify({"error": "Missing required parameters"}), 400
 
     # Start the Celery task
-    task = design_primers_task.delay(job_id, sequence_idx, selected_mutations)
+    celery = get_celery_instance()
+    task = celery.send_task(
+        "flask_backend.celery_tasks.design_primers_task",
+        args=[job_id, sequence_idx, selected_mutations],
+    )
 
     return jsonify(
         {"status": "success", "message": "Primer design started", "task_id": task.id}

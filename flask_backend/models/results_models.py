@@ -18,8 +18,8 @@ class MutationSet(FrontendNumpyFriendly):
 
 
 class MutationSetCollection(FrontendFriendly):
-    rs_keys: List[str]
-    sets: List[MutationSet]
+    rs_keys: List[str] = []
+    sets: List[MutationSet] = []
 
 
 class PCRReaction(FrontendFriendly):
@@ -37,7 +37,6 @@ class EdgePrimerPair(FrontendFriendly):
 # Protocol model
 class DomesticationResult(FrontendFriendly):
     sequence_index: int = -1
-    max_results: str = "one"
     processed_sequence: str = ""
     mtk_part_left: str = ""
     mtk_part_right: str = ""
@@ -60,7 +59,6 @@ class MTKDomesticationProtocol(FrontendFriendly):
 
 class SsePayload(FrontendFriendly):
     """Model for SSE step updates"""
-
     job_id: str
     sequence_idx: int
     step: str
@@ -76,6 +74,4 @@ class SsePayload(FrontendFriendly):
     callout: Optional[str] = None
     processed_sequence: Optional[str] = None
     timestamp: Optional[int] = None
-    job_id: Optional[str] = None
-    sequence_idx: Optional[int] = None
     callout: Optional[str] = None

@@ -22,7 +22,6 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
     kozak: "MTK",
     maxMutationsPerSite: 1,
     verboseMode: false,
-    maxResults: "one",
   });
 
   const [prefillLoaded, setPrefillLoaded] = useState(false);

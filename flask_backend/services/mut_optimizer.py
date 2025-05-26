@@ -1,4 +1,4 @@
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
 import numpy as np
 from itertools import product
 
@@ -73,7 +73,7 @@ class MutationOptimizer:
         return mutation_sets
 
     def generate_mutation_sets(
-        self, mutation_options: Dict[str, List[Mutation]], send_update: Callable = None
+        self, mutation_options: Dict[str, List[Mutation]], send_update: Optional[Callable] = None
     ) -> MutationSetCollection:
         """
         Generate all valid mutation sets using a generator-based approach for memory efficiency.

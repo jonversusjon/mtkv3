@@ -1,11 +1,14 @@
 import logging
-from typing import Dict, List
+from typing import Dict, List, Tuple, Any, Callable
 
 from flask_backend.models import RestrictionSite, Codon, MutationCodon
 from flask_backend.services.utils import GoldenGateUtils
 
 # Get a logger instance for this module
-module_logger = logging.getLogger("flask_backend.services.mut_analyzer") # Renamed to avoid conflict if 'logger' is used as a var name
+module_logger: logging.Logger = logging.getLogger(
+    "flask_backend.services.mut_analyzer"
+)  # Renamed to avoid conflict if 'logger' is used as a var name
+
 
 class MutationAnalyzer:
     """
@@ -22,13 +25,17 @@ class MutationAnalyzer:
         max_mutations: int = 1,
         verbose: bool = False,
         debug: bool = False,
-    ):
-        self.utils = GoldenGateUtils()
-        self.state = {"current_codon": "", "current_position": 0, "mutations_found": []}
-        self.codon_usage_dict = codon_usage_dict
-        self.max_mutations = max_mutations
-        self.verbose = verbose
-        self.debug = debug
+    ) -> None:
+        self.utils: GoldenGateUtils = GoldenGateUtils()
+        self.state: Dict[str, Any] = {
+            "current_codon": "",
+            "current_position": 0,
+            "mutations_found": [],
+        }
+        self.codon_usage_dict: Dict[str, Dict[str, float]] = codon_usage_dict
+        self.max_mutations: int = max_mutations
+        self.verbose: bool = verbose
+        self.debug: bool = debug
 
         module_logger.info(
             f"Initializing MutationAnalyzer with verbose={verbose} and debug={debug}"
@@ -39,8 +46,7 @@ class MutationAnalyzer:
         #         codon_usage_dict and isinstance(codon_usage_dict, dict),
         #         "Codon usage dictionary is valid",
         #     )
-        
-        
+
         #     logger.validate(
         #         isinstance(max_mutations, int) and max_mutations > 0,
         #         f"Max mutations set to {max_mutations}",
@@ -55,12 +61,14 @@ class MutationAnalyzer:
         across all given restriction sites (non‑empty subsets of codon alternatives that overlap
         the recognition site).
         """
-        total = 0
+        total: int = 0
         for site in restriction_sites:
-            alt_counts = []
+            alt_counts: List[int] = []
             for codon in site.codons:
-                alt_seqs = self.utils.get_codon_seqs_for_amino_acid(codon.amino_acid)
-                count = sum(
+                alt_seqs: List[str] = self.utils.get_codon_seqs_for_amino_acid(
+                    codon.amino_acid
+                )
+                count: int = sum(
                     1
                     for seq in alt_seqs
                     if seq != codon.codon_sequence
@@ -80,8 +88,11 @@ class MutationAnalyzer:
         return total
 
     def get_mutation_for_choice(
-        self, site_key, chosen_codon_sequence, site_mutation_options
-    ):
+        self,
+        site_key: str,
+        chosen_codon_sequence: str,
+        site_mutation_options: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         """
         Helper function to retrieve a specific mutation for a given choice.
         Args:
@@ -93,62 +104,68 @@ class MutationAnalyzer:
             Mutation: The selected mutation object.
         """
         for mutation in site_mutation_options:
-            if mutation.mut_codons[0].codon.codon_sequence == chosen_codon_sequence:
+            if mutation["mutCodons"][0].codon.codon_sequence == chosen_codon_sequence:
                 return mutation
         raise ValueError(
             f"No mutation found for site {site_key} with codon sequence {chosen_codon_sequence}"
         )
 
     def get_all_mutations(
-        self, restriction_sites: List[RestrictionSite], send_update: callable
-    ) -> Dict[str, List[dict]]:
+        self,
+        restriction_sites: List[RestrictionSite],
+        send_update: Callable[[str, int], None],
+    ) -> Dict[str, List[Dict[str, Any]]]:
         # logger.log_step(
         #     "Mutation Analysis",
         #     f"Starting mutation analysis for {len(restriction_sites)} site(s)",
         # )
-        mutation_options = {}
+        mutation_options: Dict[str, List[Dict[str, Any]]] = {}
 
-        total_estimated_operations = self._estimate_total_mutations(restriction_sites)
-        completed_operations = 0
+        total_estimated_operations: int = self._estimate_total_mutations(
+            restriction_sites
+        )
+        completed_operations: int = 0
 
         try:
             send_update(
-                message=f"Starting mutation analysis for {len(restriction_sites)} site(s)",
-                prog=0,
+                f"Starting mutation analysis for {len(restriction_sites)} site(s)",
+                0,
             )
 
             for site_idx, site in enumerate(restriction_sites):
-                rs_key = f"mutation_{site.position}"
-                valid_mutations = []
+                rs_key: str = f"mutation_{site.position}"
+                valid_mutations: List[Dict[str, Any]] = []
 
                 for codon_idx, codon in enumerate(site.codons):
-                    alt_codon_seqs = self.utils.get_codon_seqs_for_amino_acid(
-                        codon.amino_acid
+                    alt_codon_seqs: List[str] = (
+                        self.utils.get_codon_seqs_for_amino_acid(codon.amino_acid)
                     )
                     for alt_codon_seq in alt_codon_seqs:
                         if alt_codon_seq == codon.codon_sequence:
                             continue
 
-                        muts = [
+                        muts: List[int] = [
                             i
                             for i in range(3)
                             if alt_codon_seq[i] != codon.codon_sequence[i]
                         ]
-                        mutations_in_rs = list(set(muts) & set(codon.rs_overlap))
+                        mutations_in_rs: List[int] = list(
+                            set(muts) & set(codon.rs_overlap)
+                        )
                         if not mutations_in_rs:
                             continue
 
-                        usage = self.utils.get_codon_usage(
+                        usage: float = self.utils.get_codon_usage(
                             alt_codon_seq, codon.amino_acid, self.codon_usage_dict
                         )
-                        valid_alternative = Codon(
+                        valid_alternative: Codon = Codon(
                             amino_acid=codon.amino_acid,
                             context_position=codon.context_position,
                             codon_sequence=alt_codon_seq,
                             rs_overlap=codon.rs_overlap,
                             usage=usage,
                         )
-                        mutation_codon = MutationCodon(
+                        mutation_codon: MutationCodon = MutationCodon(
                             codon=valid_alternative, nth_codon_in_rs=codon_idx + 1
                         )
                         valid_mutations.append(
@@ -161,7 +178,7 @@ class MutationAnalyzer:
 
                         # Integrate progress update here
                         completed_operations += 1
-                        prog = min(
+                        prog: int = min(
                             99,
                             int(
                                 (completed_operations / total_estimated_operations)
@@ -169,17 +186,16 @@ class MutationAnalyzer:
                             ),
                         )
                         send_update(
-                            message=f"Analyzing site {site_idx + 1}/{len(restriction_sites)}",
-                            prog=prog,
+                            f"Analyzing site {site_idx + 1}/{len(restriction_sites)}",
+                            prog,
                         )
 
                 if valid_mutations:
                     mutation_options[rs_key] = valid_mutations
 
             send_update(
-                message="Mutation Analysis Complete",
-                prog=100,
-                mutation_options=mutation_options,
+                "Mutation Analysis Complete",
+                100,
             )
             return mutation_options
 
@@ -189,16 +205,19 @@ class MutationAnalyzer:
 
     def _calculate_sticky_ends_with_context(
         self, mutated_ctx: str, first_mut_idx: int, last_mut_idx: int
-    ) -> Dict:
+    ) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
         # logger.log_step(
         #     "Calculate Sticky Ends", "Calculating sticky ends for the mutated context"
         # )
         # logger.debug(f"first_mut_idx: {first_mut_idx}")
         # logger.debug(f"last_mut_idx: {last_mut_idx}")
-        sticky = {}
+        sticky: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
         for pos in sorted({first_mut_idx, last_mut_idx}):
-            pos_sticky = {"top_strand": [], "bottom_strand": []}
-            ranges = [
+            pos_sticky: Dict[str, List[Dict[str, Any]]] = {
+                "top_strand": [],
+                "bottom_strand": [],
+            }
+            ranges: List[range] = [
                 range(pos - 3, pos + 1),
                 range(pos - 2, pos + 2),
                 range(pos - 1, pos + 3),
@@ -206,8 +225,8 @@ class MutationAnalyzer:
             ]
             for r in ranges:
                 if 0 <= min(r) and max(r) < len(mutated_ctx):
-                    top = "".join(mutated_ctx[i] for i in r)
-                    bottom = self.utils.reverse_complement(top)
+                    top: str = "".join(mutated_ctx[i] for i in r)
+                    bottom: str = self.utils.reverse_complement(top)
                     pos_sticky["top_strand"].append(
                         {"seq": top, "overhang_start_index": r.start}
                     )
@@ -222,8 +241,8 @@ class MutationAnalyzer:
         return sticky
 
     def _get_combined_mutated_context(
-        self, context_sequence: str, mutations_info: List[Dict]
-    ) -> tuple:
+        self, context_sequence: str, mutations_info: List[Dict[str, Any]]
+    ) -> Tuple[str, int, int]:
         """
         Generate a mutated context sequence by applying multiple codon substitutions and
         calculate the first and last mutation indices within the overall context.
@@ -245,15 +264,15 @@ class MutationAnalyzer:
             ValueError: If any new codon is not 3 nucleotides long or if no mutated bases are provided for a mutation.
         """
         # Convert the context sequence to a list for in-place modifications.
-        seq_list = list(context_sequence)
+        seq_list: List[str] = list(context_sequence)
 
         # Lists to hold global positions of each mutation.
-        global_mutation_positions = []
+        global_mutation_positions: List[int] = []
 
         for mutation in mutations_info:
-            codon_pos = mutation["codon_context_position"]
-            new_codon = mutation["new_codon_sequence"]
-            muts = mutation["muts"]
+            codon_pos: int = mutation["codon_context_position"]
+            new_codon: str = mutation["new_codon_sequence"]
+            muts: List[int] = mutation["muts"]
 
             if len(new_codon) != 3:
                 raise ValueError("New codon must be 3 nucleotides long.")
@@ -270,18 +289,18 @@ class MutationAnalyzer:
             seq_list[codon_pos : codon_pos + 3] = list(new_codon)
 
             # Calculate global mutation indices for this codon.
-            local_first = min(muts)
-            local_last = max(muts)
-            global_first = codon_pos + local_first
-            global_last = codon_pos + local_last
+            local_first: int = min(muts)
+            local_last: int = max(muts)
+            global_first: int = codon_pos + local_first
+            global_last: int = codon_pos + local_last
             global_mutation_positions.extend([global_first, global_last])
 
         # The overall first mutation index is the minimum of all global mutation positions,
         # and the overall last mutation index is the maximum.
-        mutated_context_first_mutation_index = min(global_mutation_positions)
-        mutated_context_last_mutation_index = max(global_mutation_positions)
+        mutated_context_first_mutation_index: int = min(global_mutation_positions)
+        mutated_context_last_mutation_index: int = max(global_mutation_positions)
 
-        mutated_context = "".join(seq_list)
+        mutated_context: str = "".join(seq_list)
         return (
             mutated_context,
             mutated_context_first_mutation_index,

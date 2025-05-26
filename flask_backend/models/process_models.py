@@ -17,7 +17,6 @@ class ProtocolRequest(FrontendFriendly):
     max_mut_per_site: int = 3
     verbose_mode: bool = True
     template_sequence: str = ""
-    max_results: str = "err"
     job_id: Optional[str] = None
 
         

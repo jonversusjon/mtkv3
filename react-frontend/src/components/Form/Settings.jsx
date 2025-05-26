@@ -1,8 +1,5 @@
 import React, { useRef, useEffect, useCallback } from "react";
 
-// Constants for slider interpretation
-const sliderValues = ["one", "a few", "many", "most", "all"];
-
 function Settings({
   show,
   onClose,
@@ -37,15 +34,6 @@ function Settings({
       document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [show, handleOutsideClick]); // Re-run effect if show or the callback changes
-
-  // --- Slider Logic ---
-  // Make sure formData.maxResults has a default value
-  const maxResults = formData.maxResults || "one";
-  
-  // Find the index corresponding to the current maxResults value
-  const currentIndex = sliderValues.indexOf(maxResults);
-  // Default to 0 if the value isn't found (e.g., initial state)
-  const safeIndex = currentIndex !== -1 ? currentIndex : 0;
 
   // If not shown, return null (render nothing)
   if (!show) return null;
@@ -132,31 +120,6 @@ function Settings({
               <option value="2">2</option>
               <option value="3">3</option>
             </select>
-          </div>
-
-          {/* Results Limit Slider */}
-          <div className="flex items-center justify-between gap-4">
-            <label htmlFor="results-slider" className="shrink-0 w-2/5 text-sm font-medium text-gray-700 dark:text-gray-300">
-              Number of Results:
-            </label>
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="range"
-                id="results-slider"
-                className="grow h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
-                min="0"
-                max={sliderValues.length - 1}
-                step="1"
-                value={safeIndex}
-                onChange={(e) => {
-                  const newIndex = parseInt(e.target.value, 10);
-                  updateField("maxResults", sliderValues[newIndex]);
-                }}
-              />
-              <span className="text-sm text-gray-600 dark:text-gray-400 w-10 text-right">
-                {maxResults}
-              </span>
-            </div>
           </div>
 
           {/* Verbose Mode Toggle */}

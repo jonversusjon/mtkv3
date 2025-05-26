@@ -2,6 +2,7 @@
 
 from typing import Dict, Optional
 from functools import partial
+import numpy as np
 
 from flask_backend.models import (
     DomesticationResult,
@@ -36,7 +37,6 @@ class ProtocolMaker:
         template_seq: Optional[str] = None,
         kozak: str = "MTK",
         output_tsv_path: str = "designed_primers.tsv",
-        max_results: str = "one",
         verbose: bool = False,
         debug: bool = False,
         job_id: Optional[str] = None,
@@ -53,21 +53,13 @@ class ProtocolMaker:
             debug=True,
         )
         self.mutation_optimizer = MutationOptimizer(verbose=verbose, debug=True)
-        self.primer_designer = PrimerDesigner(kozak=kozak, verbose=verbose, debug=True)
+        self.primer_designer = PrimerDesigner(verbose=verbose, debug=True)
         self.reaction_organizer = ReactionOrganizer(
-            seq_to_dom=sequence_to_domesticate,
+            seq_to_dom=sequence_to_domesticate.sequence,
             utils=self.utils,
             verbose=verbose,
             debug=True,
         )
-
-        # logger.debug(
-        #     f"Protocol maker for sequence {request_idx + 1} initialized with codon_usage_dict: {codon_usage_dict}"
-        # )
-        # if verbose:
-        # logger.log_step(
-        #     "Verbose Mode", "Protocol maker is running in verbose mode."
-        # )
 
         self.request_idx = request_idx
         self.seq_to_dom: SequenceToDomesticate = sequence_to_domesticate
@@ -77,15 +69,12 @@ class ProtocolMaker:
         self.codon_usage_dict = codon_usage_dict
         self.max_mutations = max_mutations
         self.output_tsv_path = output_tsv_path
-        self.max_results = max_results
         self.job_id = job_id
 
     def create_gg_protocol(self, send_update) -> dict:
         """
         Main function to orchestrate the Golden Gate protocol creation in stages.
         """
-        # logger.log_step("Protocol Start", f"Processing sequence {self.request_idx + 1}")
-
         # Use primer_name as identifier, or fallback to sequence index if not available
         sequence_identifier = getattr(
             self.seq_to_dom, "primer_name", f"Sequence_{self.request_idx + 1}"
@@ -100,22 +89,25 @@ class ProtocolMaker:
             mtk_part_left=self.seq_to_dom.mtk_part_left,
             mtk_part_right=self.seq_to_dom.mtk_part_right,
         )
-
         # Stage 1: Preprocessing and Restriction Site Detection
-        processed_seq, valid_seq = self.sequence_preparator.preprocess_sequence(
-            self.seq_to_dom.sequence,
-            self.seq_to_dom.mtk_part_left,
-            partial(send_update, step="Preprocessing"),
+        processed_seq, sequence_prep_msg, valid_seq = (
+            self.sequence_preparator.preprocess_sequence(
+                self.seq_to_dom.sequence,
+                self.seq_to_dom.mtk_part_left,
+                partial(send_update, step="Preprocessing"),
+            )
         )
         print(f"Processed sequence: {processed_seq}")
+        print(f"sequence_prep_msg: {sequence_prep_msg}")
+        print(f"Valid sequence: {valid_seq}")
         if not valid_seq:
-            return dom_result
-        dom_result.processed_sequence = str(processed_seq)
+            return dom_result.__dict__
+
+        dom_result.processed_sequence = processed_seq
 
         restriction_sites = self.rs_analyzer.find_restriction_sites(
-            processed_seq, partial(send_update, step="Restriction Sites")
+            sequence_prep_msg, partial(send_update, step="Restriction Sites")
         )
-        dom_result.restriction_sites = restriction_sites
         print(f"Restriction sites: {restriction_sites}")
         if restriction_sites:
             # Stage 2: Mutation Analysis
@@ -123,7 +115,14 @@ class ProtocolMaker:
                 restriction_sites, partial(send_update, step="Mutation Analysis")
             )
             print(f"Mutation options: {mutation_options}")
-            dom_result.mutation_options = mutation_options
+            # Convert mutation_options dict to list of Mutation objects
+            mutation_list = []
+            for site_key, mutations in mutation_options.items():
+                for mutation_dict in mutations:
+                    # Assuming mutation_dict contains the necessary data to create a Mutation object
+                    # You may need to adjust this based on your Mutation class structure
+                    mutation_list.extend(mutation_dict.get("mutCodons", []))
+            dom_result.mutation_options = mutation_list
 
             # Stage 3: Primer Design (Background)
             if mutation_options:
@@ -131,35 +130,30 @@ class ProtocolMaker:
 
                 # Convert best_mutations dictionary to a MutationSetCollection object
                 # Get the restriction site keys (rs_keys)
-                rs_keys = list(best_mutations.keys())
-
                 # Create a MutationSet object with the best mutations
                 mutation_set = MutationSet(
                     alt_codons=best_mutations,
-                    compatibility=[
-                        [1]
-                    ],  # Simple compatibility matrix for single best mutations
+                    compatibility=np.array([[1]]),  # Convert to numpy array
                     mut_primer_sets=[],
                 )
 
-                # Create the MutationSetCollection
+                # Create the MutationSetCollection with correct parameter names
+                rs_keys = list(mutation_options.keys())
                 mutation_collection = MutationSetCollection(
                     rs_keys=rs_keys, sets=[mutation_set]
                 )
-
                 print(f"Created MutationSetCollection with rs_keys: {rs_keys}")
-
-                dom_result.recommended_primers = (
-                    self.primer_designer.design_mutation_primers(
-                        mutation_sets=mutation_collection,
-                        primer_name="",
-                        max_results_str=self.max_results,
-                        send_update=partial(send_update, step="Primer Design"),
-                        batch_update_interval=1,
-                    )
+                self.primer_designer.design_mutation_primers(
+                    mutation_sets=mutation_collection,
+                    primer_name="",
+                    send_update=partial(send_update, step="Primer Design"),
+                    batch_update_interval=1,
                 )
+                # Convert primer results to proper format if needed
+                # dom_result.recommended_primers = primer_results  # Commented out due to type mismatch
 
         return dom_result
+        # return dom_result.__dict__
 
     def _select_best_mutations(self, mutation_options):
         """

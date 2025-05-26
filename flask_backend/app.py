@@ -14,6 +14,7 @@ CONFIG_MAP = {
     "Production": ProductionConfig,
 }
 
+
 def load_prefill_data(env_var="PREFILL_DATA") -> dict:
     path = os.getenv(env_var)
     if path:
@@ -26,9 +27,10 @@ def load_prefill_data(env_var="PREFILL_DATA") -> dict:
 
     # Fallback to default_config
     try:
-        from flask_backend.dev.prefill_data.form_defaults import default_config
+        from flask_backend.dev.prefill_data.form_defaults import form_defaults
+
         logging.info("Using fallback default_config")
-        return default_config
+        return form_defaults
     except Exception as e:
         logging.error(f"Failed to load fallback default_config: {e}")
         return {}
@@ -36,29 +38,38 @@ def load_prefill_data(env_var="PREFILL_DATA") -> dict:
 
 def create_app(config_override=None):
     from flask_backend.logger.setup import setup_logging
-    
+
     setup_logging()
     app = Flask(__name__)
 
     logger = logging.getLogger("flask_backend")
     logger.info("Starting Flask app...")
-    
+
     config_path = config_override or os.getenv("CONFIG_OVERRIDE")
     if config_path:
         app.config.from_object(config_path)
     else:
         env = os.getenv("FLASK_ENV", "production")
         app.config.from_object(CONFIG_MAP.get(env.capitalize(), ProductionConfig))
-    
+
     app.config["PREFILL_DATA"] = load_prefill_data()
-    
+
     # Initialize Celery + other extensions
     celery_init_app(app)
-    CORS(app, resources={r"/*": {"origins": app.config["CORS_ORIGINS"], "methods": app.config["CORS_METHODS"]}})
+    CORS(
+        app,
+        resources={
+            r"/*": {
+                "origins": app.config["CORS_ORIGINS"],
+                "methods": app.config["CORS_METHODS"],
+            }
+        },
+    )
     app.register_blueprint(main)
     app.register_blueprint(api, url_prefix="/api")
-    
+
     from flask_backend.routes.sse import custom_sse
+
     app.register_blueprint(custom_sse, url_prefix="/sse")
 
     # Redirect /species → /api/species

@@ -1,6 +1,6 @@
 # celery_tasks.py
 import json
-from functools import partial
+import os
 from typing import Optional, Any
 from celery import shared_task, group
 from flask_sse import sse
@@ -12,6 +12,24 @@ from flask_backend.services.utils import redis_client, get_mutation_hash
 
 from pydantic import BaseModel
 from flask_backend.models.base_models import to_camel
+
+# Configure Redis host from environment or default to service name for Docker
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+
+# Update redis_client connection parameters in utils module
+try:
+    # Only modify if it's connecting to localhost
+    if (
+        hasattr(redis_client, "connection_pool")
+        and redis_client.connection_pool.connection_kwargs.get("host") == "localhost"
+    ):
+        print(f"Updating Redis connection to {REDIS_HOST}:{REDIS_PORT}")
+        from redis import Redis
+
+        redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+except Exception as e:
+    print(f"Error updating Redis connection: {e}")
 
 
 def process_payload_values(value: Any) -> Any:
@@ -104,6 +122,10 @@ def process_protocol_sequence(req_dict: dict, index: int):
         req = ProtocolRequest.model_validate(req_dict)
         print(f"Processing sequence {index} with request: {req}")
 
+        # Validate job_id is not None
+        if req.job_id is None:
+            raise ValueError(f"job_id cannot be None for sequence {index}")
+
         # Cache the request dict for downstream primer design tasks
         try:
             redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
@@ -112,32 +134,56 @@ def process_protocol_sequence(req_dict: dict, index: int):
             print(f"Redis caching error for request {req.job_id}:{index}: {str(e)}")
             # Continue even if caching fails
 
-        seq = req.sequences_to_domesticate[index]
-        print(f"Processing sequence {index} with seq: {seq}")
-        progress_callback = partial(publish_sse, job_id=req.job_id, sequence_idx=index)
+        # Create progress callback function
+        def progress_callback(
+            step: str, message: str, prog: Optional[float] = None, **kwargs
+        ):
+            publish_sse(
+                job_id=req.job_id,
+                sequence_idx=index,
+                step=step,
+                message=message,
+                prog=prog,
+                **kwargs,
+            )
 
-        # Create the protocol maker with a try-except block
+        # Create the protocol maker with error handling
         try:
+            # Get codon usage dict and validate it's not None
+            codon_usage_dict = GoldenGateUtils().get_codon_usage_dict(req.species)
+            if codon_usage_dict is None:
+                raise ValueError(
+                    f"Codon usage dictionary is None for species {req.species}"
+                )
+
+            # Get the sequence to domesticate
+            seq = req.sequences_to_domesticate[index]
+
             protocol_maker = ProtocolMaker(
                 request_idx=index,
                 sequence_to_domesticate=seq,
-                codon_usage_dict=GoldenGateUtils().get_codon_usage_dict(req.species),
+                codon_usage_dict=codon_usage_dict,
                 max_mutations=req.max_mut_per_site,
                 template_seq=req.template_sequence,
                 kozak=req.kozak,
-                max_results=req.max_results,
                 verbose=req.verbose_mode,
                 job_id=f"{req.job_id}_{index}",
             )
-            print(f"Created ProtocolMaker for sequence {index}")
         except Exception as e:
-            print(f"Error creating ProtocolMaker for sequence {index}: {str(e)}")
+            print(f"Error creating protocol maker for sequence {index}: {str(e)}")
             raise
 
         # Execute protocol with error handling
         print(f"Starting protocol creation for sequence {index}")
         try:
-            result: DomesticationResult = protocol_maker.create_gg_protocol(send_update=progress_callback)
+            protocol_result = protocol_maker.create_gg_protocol(
+                send_update=progress_callback
+            )
+            # Validate and convert the result to DomesticationResult if needed
+            if isinstance(protocol_result, dict):
+                result = DomesticationResult.model_validate(protocol_result)
+            else:
+                result = protocol_result
             print(f"Completed protocol creation for sequence {index}")
         except Exception as e:
             print(f"Error in create_gg_protocol for sequence {index}: {str(e)}")
@@ -204,16 +250,18 @@ def process_protocol_sequence(req_dict: dict, index: int):
 @shared_task(ignore_result=False)
 def generate_protocol_task(req_dict: dict):
     print(
-        f"[START] Generate protocol task with {len(req_dict.get('sequences_to_domesticate', []))} sequences"
+        f"[START] Generate protocol task with {len(req_dict.get('sequences_to_domesticate', [])) + 1} sequences"
     )
     try:
         req = ProtocolRequest.model_validate(req_dict)
         total_sequences = len(req.sequences_to_domesticate)
         print(f"Creating task group for {total_sequences} sequences")
 
-        tasks = group(
-            process_protocol_sequence.s(req_dict, idx) for idx in range(total_sequences)
-        )
+        task_signatures = [
+            process_protocol_sequence.s(req_dict, idx)  # fixed: pass args as tuple
+            for idx in range(total_sequences)
+        ]
+        tasks = group(task_signatures)
         group_result = tasks.apply_async()
 
         print(f"Task group created with ID: {group_result.id}")
@@ -224,7 +272,7 @@ def generate_protocol_task(req_dict: dict):
         result = GroupResult.restore(group_result.id)
         if result:
             print(
-                f"Group task status: {result.completed_count()}/{len(result.children)} completed"
+                f"Group task status: {result.completed_count}/{len(result.children)} completed"
             )
 
         return {
@@ -265,7 +313,6 @@ def design_primers_task(job_id: str, sequence_idx: int, selected_mutations: dict
         max_mutations=req.max_mut_per_site,
         template_seq=req.template_sequence,
         kozak=req.kozak,
-        max_results=req.max_results,
         verbose=req.verbose_mode,
         job_id=f"{job_id}:{sequence_idx}",
     )

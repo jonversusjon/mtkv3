@@ -15,7 +15,7 @@ from flask_backend.models import (
 )
 
 # import logging
-from typing import List
+from typing import List, Callable
 
 RESULT_MAPPING = {
     "one": lambda num_sites, total_coords: 1,
@@ -68,84 +68,31 @@ class PrimerDesigner:
         self,
         mutation_sets: MutationSetCollection,
         primer_name: str,
-        max_results_str: str,
-        send_update: callable,
+        send_update: Callable,
         batch_update_interval: int = 1,  # Update after processing every N mutation sets.
     ):
         """
         Designs mutation primers for the provided mutation sets using compatibility matrices.
         Returns a list of MutationPrimerSet objects.
         """
-        # logger.log_step(
-        #     "Design Mutation Primers",
-        #     "Starting primer design process",
-        #     {
-        #         "mutation_sets": mutation_sets,
-        #         "primer_name": primer_name,
-        #         "max_results": max_results_str,
-        #     },
-        # )
-
-        # with logger.timer_context("Precompute Restriction Sites and Valid Coordinates"):
-        # Calculate number of restriction sites.
-        num_restriction_sites = len(mutation_sets.rs_keys)
-        # Precompute total valid coordinates across all mutation sets.
-        total_valid_coords = sum(
-            np.argwhere(mut_set.compatibility == 1).shape[0]
-            for mut_set in mutation_sets.sets
-        )
-        max_results = RESULT_MAPPING.get(
-            max_results_str, lambda num_sites, total_coords: 1
-        )(num_restriction_sites, total_valid_coords)
 
         all_primers: List[MutationPrimerSet] = []
         mut_rs_keys = mutation_sets.rs_keys
         total_sets = len(mutation_sets.sets)
 
         for idx, mut_set in enumerate(mutation_sets.sets):
-            # with logger.timer_context(f"Process Mutation Set {idx + 1}"):
             comp_matrix = mut_set.compatibility
 
-            # with logger.timer_context("Coordinate Validation"):
             valid_coords = np.argwhere(comp_matrix == 1)
-            # logger.validate(
-            #     valid_coords.size > 0,
-            #     f"Found {np.count_nonzero(comp_matrix)} valid overhang combination(s)",
-            #     {"matrix_size": comp_matrix.size},
-            # )
-            # logger.log_step(
-            #     "Valid Coordinates",
-            #     f"Mutation set {idx + 1}: Valid coordinates: {valid_coords.tolist()}",
-            # )
-            # logger.log_step(
-            #     "Matrix Visualization",
-            #     f"Compatibility matrix for set {idx + 1}",
-            #     logger.visualize_matrix(comp_matrix),
-            # )
 
-            # with logger.timer_context("Coordinate Selection"):
-            if max_results == 0:
-                coords_to_process = valid_coords.tolist()
-            # logger.log_step(
-            #     "Processing All Coordinates",
-            #     f"Processing all {len(coords_to_process)} valid coordinate combination(s).",
-            # )
-            else:
-                sample_size = min(max_results, valid_coords.shape[0])
-                selected_indices = np.random.choice(
-                    valid_coords.shape[0], size=sample_size, replace=False
-                )
-                coords_to_process = [valid_coords[i].tolist() for i in selected_indices]
-                # logger.log_step(
-                #     "Random Coordinate Selection",
-                #     f"Randomly selected {sample_size} coordinate combination(s): {coords_to_process}",
-                # )
+            sample_size = valid_coords.shape[0]
+            selected_indices = np.random.choice(
+                valid_coords.shape[0], size=sample_size, replace=False
+            )
+            coords_to_process = [valid_coords[i].tolist() for i in selected_indices]
 
             mut_set_primer_pairs = []
             for coords in coords_to_process:
-                # with logger.timer_context(
-                #     f"Construct Primer Set for coords {coords}"
-                # ):
                 primer_pairs: List[MutationPrimerPair] = (
                     self._construct_mutation_primer_set(
                         mut_rs_keys=mut_rs_keys,
@@ -154,22 +101,8 @@ class PrimerDesigner:
                         primer_name=primer_name,
                     )
                 )
-                # logger.validate(
-                #     primer_pairs is not None,
-                #     "Successfully constructed mutation primers",
-                #     {"primer_count": len(primer_pairs) if primer_pairs else 0},
-                # )
                 if primer_pairs:
-                    # logger.log_step(
-                    #     "Constructed Primers",
-                    #     f"Constructed mutation primer pairs for combination {coords}: {primer_pairs}",
-                    # )
                     mut_set_primer_pairs.extend(primer_pairs)
-
-            # logger.log_step(
-            #     "Set Summary",
-            #     f"Total primer pairs constructed for mutation set {idx + 1}: {len(mut_set_primer_pairs)}",
-            # )
 
             # Create a MutationPrimerSet object for this mutation set.
             if mut_set_primer_pairs:
@@ -186,12 +119,6 @@ class PrimerDesigner:
                 )
 
         if not all_primers:
-            # if self.debug:
-            #     logger.log_step(
-            #         "Design Failure",
-            #         "Failed to design primers for any mutation set",
-            #         level=logging.WARNING,
-            #     )
             send_update(
                 message="No valid primer sets found",
                 prog=100,
@@ -215,7 +142,7 @@ class PrimerDesigner:
         mut_rs_keys: List[str],
         mutation_set: MutationSet,
         selected_coords: list,
-        primer_name: str = None,
+        primer_name: str = "",
         min_binding_length: int = 10,
     ) -> list[MutationPrimerPair]:
         """
@@ -249,12 +176,14 @@ class PrimerDesigner:
             f_5prime = overhang_start - 1
             f_seq_length = min_binding_length
             f_anneal = mutated_context[f_5prime : f_5prime + f_seq_length]
+            f_primer_seq = self.spacer + self.bsmbi_site + f_anneal
             while (
                 self.utils.calculate_tm(f_anneal) < tm_threshold
                 and f_seq_length < self.max_binding_length
             ):
                 f_seq_length += 1
                 f_anneal = mutated_context[f_5prime : f_5prime + f_seq_length]
+                f_primer_seq = self.spacer + self.bsmbi_site + f_anneal
 
                 # logger.log_step(
                 #     "Forward Primer",
@@ -265,7 +194,6 @@ class PrimerDesigner:
                 #     == overhang_data.top_overhang.strip().upper(),
                 #     f"Forward annealing region mismatch: got {f_anneal[1:5]}",
                 # )
-                f_primer_seq = self.spacer + self.bsmbi_site + f_anneal
 
             # with logger.timer_context("Design Reverse Primer"):
             r_5prime = overhang_start + 5
@@ -335,12 +263,11 @@ class PrimerDesigner:
 
     def generate_GG_edge_primers(
         self,
-        idx,
         sequence,
         mtk_part_left,
         mtk_part_right,
         primer_name,
-        send_update: callable,
+        send_update: Callable,
     ) -> EdgePrimerPair:
         # logger.log_step(
         #     "Generate Edge Primers",
@@ -375,12 +302,17 @@ class PrimerDesigner:
         #     {"5_prime": overhang_5p, "3_prime": overhang_3p},
         # )
 
+        # Handle None values for overhangs
+        if overhang_5p is None:
+            overhang_5p = ""
+        if overhang_3p is None:
+            overhang_3p = ""
+
         f_binding = seq_str[:f_length]
         r_binding = str(Seq(seq_str[-r_length:]).reverse_complement())
 
         forward_seq = overhang_5p + f_binding
         reverse_seq = overhang_3p + r_binding
-
         f_primer = Primer(
             name=f"{primer_name}_F",
             sequence=forward_seq,
@@ -430,7 +362,7 @@ class PrimerDesigner:
         from flask_backend.models import MutationSet
 
         mut_set = MutationSet(
-            alt_codons=mutation_set, compatibility=[], mut_primer_sets=[]
+            alt_codons=mutation_set, compatibility=np.array([]), mut_primer_sets=[]
         )
 
         # Check compatibility
@@ -444,14 +376,20 @@ class PrimerDesigner:
         )
         mut_set.compatibility = matrix.tolist()
 
-        # Design primers with max_results="one"
         from flask_backend.models import MutationSetCollection
 
+        # Create the collection using the model's expected format
+        collection = MutationSetCollection()
+        collection.rs_keys = list(mutation_set.keys())
+        collection.sets = [mut_set]
+
         mut_primer_set = self.design_mutation_primers(
-            MutationSetCollection(rs_keys=list(mutation_set.keys()), sets=[mut_set]),
+            collection,
             "CustomPrimer",
             "one",
-            lambda *args, **kwargs: None,  # Empty callback
+            lambda _message=None,
+            _prog=None,
+            **_kwargs: None,  # Empty callback with named unused params
         )
 
         return mut_primer_set
@@ -479,7 +417,14 @@ class PrimerDesigner:
         cached_options = redis_client.get(cache_key)
 
         if cached_options:
-            mutation_options = json.loads(cached_options)
+            # Handle both string and bytes responses
+            if isinstance(cached_options, bytes):
+                mutation_options = json.loads(cached_options.decode("utf-8"))
+            elif isinstance(cached_options, str):
+                mutation_options = json.loads(cached_options)
+            else:
+                # Handle other response types by converting to string first
+                mutation_options = json.loads(str(cached_options))
             site_mutations = mutation_options.get(site_key, [])
 
             for mutation in site_mutations:
