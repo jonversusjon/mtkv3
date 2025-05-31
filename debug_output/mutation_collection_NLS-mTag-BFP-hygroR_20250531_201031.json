@@ -1,0 +1,207 @@
+{
+  "rs_keys": [
+    "mutation_480",
+    "mutation_1206",
+    "mutation_1395"
+  ],
+  "sets": [
+    {
+      "alt_codons": {
+        "mutation_480": {
+          "mut_codons": [
+            {
+              "codon": {
+                "amino_acid": "E",
+                "context_position": 30,
+                "codon_sequence": "GAA",
+                "rs_overlap": [
+                  0,
+                  1,
+                  2
+                ],
+                "usage": 29.0
+              },
+              "nth_codon_in_rs": 1
+            }
+          ],
+          "mut_codons_context_start_idx": 30,
+          "mut_indices_rs": [
+            2
+          ],
+          "mut_indices_codon": [
+            2
+          ],
+          "mut_context": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAAACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+          "native_context": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+          "first_mut_idx": 32,
+          "last_mut_idx": 32,
+          "overhang_options": [
+            {
+              "bottom_overhang": "TTCC",
+              "top_overhang": "GGAA",
+              "overhang_start_index": 29
+            },
+            {
+              "bottom_overhang": "TTTC",
+              "top_overhang": "GAAA",
+              "overhang_start_index": 30
+            },
+            {
+              "bottom_overhang": "GTTT",
+              "top_overhang": "AAAC",
+              "overhang_start_index": 31
+            },
+            {
+              "bottom_overhang": "GGTT",
+              "top_overhang": "AACC",
+              "overhang_start_index": 32
+            }
+          ],
+          "context_rs_indices": [
+            30,
+            31,
+            32,
+            33,
+            34,
+            35
+          ],
+          "recognition_seq": "GAGACC",
+          "enzyme": "BsaI"
+        },
+        "mutation_1206": {
+          "mut_codons": [
+            {
+              "codon": {
+                "amino_acid": "E",
+                "context_position": 30,
+                "codon_sequence": "GAA",
+                "rs_overlap": [
+                  0,
+                  1,
+                  2
+                ],
+                "usage": 29.0
+              },
+              "nth_codon_in_rs": 1
+            }
+          ],
+          "mut_codons_context_start_idx": 30,
+          "mut_indices_rs": [
+            2
+          ],
+          "mut_indices_codon": [
+            2
+          ],
+          "mut_context": "AAGAAAACACTCGGCTGGGAGGCCTTCACCGAAACGCTGTACCCCGCTGACGGCGGCCTGGAAGGC",
+          "native_context": "AAGAAAACACTCGGCTGGGAGGCCTTCACCGAGACGCTGTACCCCGCTGACGGCGGCCTGGAAGGC",
+          "first_mut_idx": 32,
+          "last_mut_idx": 32,
+          "overhang_options": [
+            {
+              "bottom_overhang": "TTCG",
+              "top_overhang": "CGAA",
+              "overhang_start_index": 29
+            },
+            {
+              "bottom_overhang": "TTTC",
+              "top_overhang": "GAAA",
+              "overhang_start_index": 30
+            },
+            {
+              "bottom_overhang": "GTTT",
+              "top_overhang": "AAAC",
+              "overhang_start_index": 31
+            },
+            {
+              "bottom_overhang": "CGTT",
+              "top_overhang": "AACG",
+              "overhang_start_index": 32
+            }
+          ],
+          "context_rs_indices": [
+            30,
+            31,
+            32,
+            33,
+            34,
+            35
+          ],
+          "recognition_seq": "GAGACG",
+          "enzyme": "BsmBI"
+        },
+        "mutation_1395": {
+          "mut_codons": [
+            {
+              "codon": {
+                "amino_acid": "E",
+                "context_position": 30,
+                "codon_sequence": "GAA",
+                "rs_overlap": [
+                  0,
+                  1,
+                  2
+                ],
+                "usage": 29.0
+              },
+              "nth_codon_in_rs": 1
+            }
+          ],
+          "mut_codons_context_start_idx": 30,
+          "mut_indices_rs": [
+            2
+          ],
+          "mut_indices_codon": [
+            2
+          ],
+          "mut_context": "AGACTGGAAAGAATCAAGGAGGCCAACAACGAAACCTACGTCGAGCAGCACGAGGTGGCAGTGGCC",
+          "native_context": "AGACTGGAAAGAATCAAGGAGGCCAACAACGAGACCTACGTCGAGCAGCACGAGGTGGCAGTGGCC",
+          "first_mut_idx": 32,
+          "last_mut_idx": 32,
+          "overhang_options": [
+            {
+              "bottom_overhang": "TTCG",
+              "top_overhang": "CGAA",
+              "overhang_start_index": 29
+            },
+            {
+              "bottom_overhang": "TTTC",
+              "top_overhang": "GAAA",
+              "overhang_start_index": 30
+            },
+            {
+              "bottom_overhang": "GTTT",
+              "top_overhang": "AAAC",
+              "overhang_start_index": 31
+            },
+            {
+              "bottom_overhang": "GGTT",
+              "top_overhang": "AACC",
+              "overhang_start_index": 32
+            }
+          ],
+          "context_rs_indices": [
+            30,
+            31,
+            32,
+            33,
+            34,
+            35
+          ],
+          "recognition_seq": "GAGACC",
+          "enzyme": "BsaI"
+        }
+      },
+      "compatibility": {
+        "snippet": [
+          1
+        ],
+        "shape": [
+          1,
+          1
+        ],
+        "onesPercentage": 100.0
+      },
+      "mut_primer_sets": []
+    }
+  ]
+}

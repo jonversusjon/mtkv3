@@ -3,7 +3,6 @@ import json
 from Bio.Seq import Seq
 from flask_backend.services.utils import GoldenGateUtils
 
-# from flask_backend.logging import logger
 from flask_backend.models import (
     Primer,
     MutationPrimerPair,
@@ -14,7 +13,6 @@ from flask_backend.models import (
     OverhangOption,
 )
 
-# import logging
 from typing import List, Callable
 
 RESULT_MAPPING = {
@@ -57,12 +55,6 @@ class PrimerDesigner:
         self.spacer = "GAA"
         self.max_binding_length = 30
 
-        # logger.validate(
-        #     self.part_end_dict is not None,
-        #     "MTK part end sequences loaded successfully",
-        #     {"kozak": self.kozak},
-        # )
-
     # @logger.log_function
     def design_mutation_primers(
         self,
@@ -77,11 +69,14 @@ class PrimerDesigner:
         """
 
         all_primers: List[MutationPrimerSet] = []
-        mut_rs_keys = mutation_sets.rs_keys
         total_sets = len(mutation_sets.sets)
 
         for idx, mut_set in enumerate(mutation_sets.sets):
             comp_matrix = mut_set.compatibility
+
+            # --- use the RS keys that actually exist in THIS mutation-set ---
+            mut_rs_keys = list(mut_set.alt_codons.keys())
+            # ----------------------------------------------------------------
 
             valid_coords = np.argwhere(comp_matrix == 1)
 
@@ -95,7 +90,7 @@ class PrimerDesigner:
             for coords in coords_to_process:
                 primer_pairs: List[MutationPrimerPair] = (
                     self._construct_mutation_primer_set(
-                        mut_rs_keys=mut_rs_keys,
+                        mut_rs_keys=mut_rs_keys,  # ← set-specific keys
                         mutation_set=mut_set,
                         selected_coords=coords,
                         primer_name=primer_name,
@@ -150,18 +145,20 @@ class PrimerDesigner:
         Expects mutation_set to be a list of Mutation objects (Pydantic models) and uses their
         overhang_options (a list of OverhangOption objects) via attribute access.
         """
-        # logger.log_step(
-        #     "Construct Primers",
-        #     f"Binding length: {min_binding_length}",
-        #     {"selected_coords": selected_coords},
-        # )
+        print(f" selected coords length: {len(selected_coords)}")
         mutation_primers = []
         # Iterate in the order provided by mut_rs_keys.
         for i, rs_key in enumerate(mut_rs_keys):
-            # with logger.timer_context(f"Process Restriction Site {rs_key}"):
+            print(f"i: {i}, rs_key: {rs_key}")
             mutation = mutation_set.alt_codons[rs_key]
+            print(f"mutation keys: {mutation_set.alt_codons.keys()}")
+            print(f"overhang options: {mutation.overhang_options}")
+            print(f"selected_coords: {selected_coords}")
+
             selected_overhang = selected_coords[i]
+            print(f"selected_overhang: {selected_overhang}")
             overhang_options = mutation.overhang_options
+            
             if selected_overhang >= len(overhang_options):
                 raise IndexError(
                     f"Selected overhang index {selected_overhang} out of range for restriction site {rs_key}"
@@ -172,7 +169,6 @@ class PrimerDesigner:
 
             tm_threshold = self.default_params["tm_threshold"]
 
-            # with logger.timer_context("Design Forward Primer"):
             f_5prime = overhang_start - 1
             f_seq_length = min_binding_length
             f_anneal = mutated_context[f_5prime : f_5prime + f_seq_length]
@@ -185,17 +181,6 @@ class PrimerDesigner:
                 f_anneal = mutated_context[f_5prime : f_5prime + f_seq_length]
                 f_primer_seq = self.spacer + self.bsmbi_site + f_anneal
 
-                # logger.log_step(
-                #     "Forward Primer",
-                #     f"Annealing region: {f_anneal[1:5]} vs expected: {overhang_data.top_overhang}",
-                # )
-                # logger.validate(
-                #     f_anneal[1:5].strip().upper()
-                #     == overhang_data.top_overhang.strip().upper(),
-                #     f"Forward annealing region mismatch: got {f_anneal[1:5]}",
-                # )
-
-            # with logger.timer_context("Design Reverse Primer"):
             r_5prime = overhang_start + 5
             r_seq_length = min_binding_length
             r_anneal = mutated_context[r_5prime : r_5prime + r_seq_length]
@@ -208,17 +193,6 @@ class PrimerDesigner:
             r_anneal = self.utils.reverse_complement(r_anneal)
             r_primer_seq = self.spacer + self.bsmbi_site + r_anneal
 
-            # logger.log_step(
-            #     "Reverse Primer",
-            #     f"Annealing region: {r_anneal[1:5]} vs expected: {overhang_data.bottom_overhang}",
-            # )
-            # logger.validate(
-            #     r_anneal[1:5].strip().upper()
-            #     == overhang_data.bottom_overhang.strip().upper(),
-            #     f"Reverse annealing region mismatch: got {r_anneal[1:5]}",
-            # )
-
-            # with logger.timer_context("Construct Primer Pair"):
             f_primer = Primer(
                 name=(primer_name + "_forward")
                 if primer_name
@@ -246,19 +220,9 @@ class PrimerDesigner:
                 reverse=r_primer,
                 mutation=mutation,
             )
-            # logger.log_step(
-            #     "Primer Pair Constructed",
-            #     f"Designed primer pair for site {rs_key} at position {mutation.first_mut_idx}",
-            # )
+
             mutation_primers.append(mutation_primer_pair)
 
-            # Validation: Ensure primer pairs are in order of restriction site position (low to high)
-            # sites = [mp.site for mp in mutation_primers]
-            # sorted_sites = sorted(sites, key=lambda k: int(k.split("_")[1]))
-            # logger.validate(
-            #     sorted_sites == sites,
-            #     f"Mutation primer positions are not in increasing order: {sites}",
-            # )
         return mutation_primers
 
     def generate_GG_edge_primers(
@@ -269,26 +233,12 @@ class PrimerDesigner:
         primer_name,
         send_update: Callable,
     ) -> EdgePrimerPair:
-        # logger.log_step(
-        #     "Generate Edge Primers",
-        #     f"Sequence {idx}",
-        #     {
-        #         "length": len(sequence),
-        #         "left_part": mtk_part_left,
-        #         "right_part": mtk_part_right,
-        #     },
-        # )
         seq_str = str(sequence)
         # seq_length = len(seq_str)
         f_length = self.utils.calculate_optimal_primer_length(seq_str, 0, "forward")
         r_length = self.utils.calculate_optimal_primer_length(
             seq_str, len(seq_str), "reverse"
         )
-        # logger.log_step(
-        #     "Optimal Primer Lengths",
-        #     "Calculated optimal primer lengths",
-        #     {"forward_length": f_length, "reverse_length": r_length},
-        # )
 
         overhang_5p = self.utils.get_mtk_partend_sequence(
             mtk_part_left, "forward", kozak=self.kozak
@@ -296,11 +246,6 @@ class PrimerDesigner:
         overhang_3p = self.utils.get_mtk_partend_sequence(
             mtk_part_right, "reverse", kozak=self.kozak
         )
-        # logger.validate(
-        #     overhang_5p is not None and overhang_3p is not None,
-        #     "Retrieved MTK part end overhangs",
-        #     {"5_prime": overhang_5p, "3_prime": overhang_3p},
-        # )
 
         # Handle None values for overhangs
         if overhang_5p is None:
@@ -329,12 +274,6 @@ class PrimerDesigner:
             gc_content=self.utils.gc_content(r_binding),
             length=len(reverse_seq),
         )
-
-        # logger.validate(
-        #     f_primer is not None and r_primer is not None,
-        #     "Edge primers created successfully",
-        #     {"product_size": seq_length},
-        # )
 
         edge_primers = EdgePrimerPair(forward=f_primer, reverse=r_primer)
 

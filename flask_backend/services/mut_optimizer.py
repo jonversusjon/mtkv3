@@ -21,47 +21,18 @@ class MutationOptimizer:
         self.verbose = verbose
         self.debug = debug
 
-        # if self.debug:
-        #     logger.log_step(
-        #         "Initialization",
-        #         "🔍 Debug mode enabled with detailed logging and validation",
-        #     )
-
         self.compatibility_table = self.utils.load_compatibility_table(
             "flask_backend/static/data/compatibility_table.bin"
         )
-        # logger.debug("MutationOptimizer initialized with compatibility table.")
-        # if self.verbose:
-        #     logger.log_step(
-        #         "Initialization", "MutationOptimizer is running in verbose mode."
-        #     )
-        # if self.debug:
-        #     logger.validate(
-        #         self.compatibility_table is not None,
-        #         "Compatibility table loaded successfully",
-        #     )
-        #     logger.validate(
-        #         isinstance(self.compatibility_table, np.ndarray),
-        #         "Compatibility table is a numpy array",
-        #     )
+        
 
     def optimize_mutations(
         self,
         mutation_options: Dict[str, List[Mutation]],
         send_update: Callable,
     ) -> MutationSetCollection:
-        # logger.log_step(
-        #     "Start Optimization", "Beginning mutation optimization process."
-        # )
 
-        # logger.log_step(
-        #     "Generate Mutation Sets", "Creating all possible mutation combinations."
-        # )
         mutation_sets = self.generate_mutation_sets(mutation_options, send_update)
-        # logger.log_step(
-        #     "Generate Mutation Sets",
-        #     f"Total mutation sets generated: {len(mutation_sets.sets)}",
-        # )
 
         send_update(
             message=f"Generated {len(mutation_sets.sets)} mutation sets",
@@ -86,13 +57,6 @@ class MutationOptimizer:
         Returns:
             MutationSetCollection object containing all valid mutation sets
         """
-        # logger.validate(
-        #     mutation_options and isinstance(mutation_options, dict),
-        #     f"Received {len(mutation_options)} mutation site(s)",
-        # )
-        # logger.log_step(
-        #     "Generate Mutation Sets", "Generating all possible mutation combinations."
-        # )
 
         # List of all restriction site keys
         rs_keys = list(mutation_options.keys())
@@ -100,9 +64,6 @@ class MutationOptimizer:
         mutation_set_collection = MutationSetCollection(rs_keys=rs_keys, sets=[])
 
         if not rs_keys:
-            # logger.log_step(
-            #     "Generate Mutation Sets", "No restriction sites to process."
-            # )
             return mutation_set_collection
 
         valid_mutation_sets = []
@@ -188,11 +149,6 @@ class MutationOptimizer:
                 last_update_count = processed_count
 
         mutation_set_collection.sets = valid_mutation_sets
-
-        # logger.log_step(
-        #     "Generate Mutation Sets",
-        #     f"Processed {processed_count} combinations, found {valid_count} valid mutation sets",
-        # )
 
         # Final update
         if send_update:

@@ -1,12 +1,14 @@
 # services/protocol.py
 
-from typing import Dict, Optional
+from __future__ import annotations
+
 from functools import partial
-import numpy as np
+from typing import Dict, Optional, Callable, List, Any
 
 from flask_backend.models import (
     DomesticationResult,
     SequenceToDomesticate,
+    Mutation,
     MutationSet,
     MutationSetCollection,
 )
@@ -19,7 +21,14 @@ from flask_backend.services import (
     ReactionOrganizer,
 )
 from flask_backend.services.utils import GoldenGateUtils
-# from flask_backend.logging import logger
+import json
+import os
+from datetime import datetime
+
+# -----------------------------------------------------------------------------
+# Helper typing
+# -----------------------------------------------------------------------------
+SendUpdateFn = Callable[..., None]
 
 
 class ProtocolMaker:
@@ -40,9 +49,10 @@ class ProtocolMaker:
         verbose: bool = False,
         debug: bool = False,
         job_id: Optional[str] = None,
-    ):
+    ) -> None:
         self.debug = debug
 
+        # Core utilities / sub‑services --------------------------------------
         self.utils = GoldenGateUtils()
         self.sequence_preparator = SequencePreparator()
         self.rs_analyzer = RestrictionSiteDetector(codon_dict=codon_usage_dict)
@@ -61,6 +71,7 @@ class ProtocolMaker:
             debug=True,
         )
 
+        # Instance metadata ---------------------------------------------------
         self.request_idx = request_idx
         self.seq_to_dom: SequenceToDomesticate = sequence_to_domesticate
         self.template_seq = template_seq
@@ -71,97 +82,137 @@ class ProtocolMaker:
         self.output_tsv_path = output_tsv_path
         self.job_id = job_id
 
-    def create_gg_protocol(self, send_update) -> dict:
-        """
-        Main function to orchestrate the Golden Gate protocol creation in stages.
-        """
-        # Use primer_name as identifier, or fallback to sequence index if not available
-        sequence_identifier = getattr(
+    # ---------------------------------------------------------------------
+    # Public API
+    # ---------------------------------------------------------------------
+    def create_gg_protocol(self, send_update: SendUpdateFn) -> dict:
+        """Run all stages for a single sequence and return a DomesticationResult dict."""
+
+        def step(name):
+            return partial(send_update, step=name)
+
+        # ---------- Stage 0: book‑keeping -----------------------------------
+        seq_name = getattr(
             self.seq_to_dom, "primer_name", f"Sequence_{self.request_idx + 1}"
         )
-
-        print(
-            f"Processing sequence {self.request_idx + 1} with name: {sequence_identifier}"
-        )
+        print(f"Processing sequence {self.request_idx + 1}: {seq_name}")
 
         dom_result = DomesticationResult(
             sequence_index=self.request_idx,
             mtk_part_left=self.seq_to_dom.mtk_part_left,
             mtk_part_right=self.seq_to_dom.mtk_part_right,
         )
-        # Stage 1: Preprocessing and Restriction Site Detection
-        processed_seq, sequence_prep_msg, valid_seq = (
+
+        # ---------- Stage 1: Pre‑process & validate -------------------------
+        processed_seq, prep_msg, is_valid = (
             self.sequence_preparator.preprocess_sequence(
                 self.seq_to_dom.sequence,
                 self.seq_to_dom.mtk_part_left,
-                partial(send_update, step="Preprocessing"),
+                step("Preprocessing"),
             )
         )
-        print(f"Processed sequence: {processed_seq}")
-        print(f"sequence_prep_msg: {sequence_prep_msg}")
-        print(f"Valid sequence: {valid_seq}")
-        if not valid_seq:
+        print("Processed sequence:", processed_seq)
+        print("sequence_prep_msg:", prep_msg)
+        print("Valid sequence:", is_valid)
+        if not is_valid:
             return dom_result.__dict__
-
         dom_result.processed_sequence = processed_seq
 
+        # ---------- Stage 2: Restriction‑site detection ----------------------
         restriction_sites = self.rs_analyzer.find_restriction_sites(
-            sequence_prep_msg, partial(send_update, step="Restriction Sites")
+            processed_seq,
+            step("Restriction Sites"),
         )
-        print(f"Restriction sites: {restriction_sites}")
-        if restriction_sites:
-            # Stage 2: Mutation Analysis
-            mutation_options = self.mutation_analyzer.get_all_mutations(
-                restriction_sites, partial(send_update, step="Mutation Analysis")
+        print("Restriction sites:", restriction_sites)
+        if not restriction_sites:
+            return dom_result.__dict__  # nothing to mutate
+
+        # ---------- Stage 3: Mutation analysis ------------------------------
+        mutation_options = self.mutation_analyzer.get_all_mutations(
+            restriction_sites,
+            step("Mutation Analysis"),
+        )  # Dict[str, List[Mutation]]
+        print("Mutation options:", mutation_options)
+
+        # Flatten all *MutationCodon* objects just for summary output
+        mutation_codons_flat: List[Any] = [
+            mut_codon
+            for muts in mutation_options.values()
+            for mut in muts
+            for mut_codon in mut.mut_codons
+        ]
+        dom_result.mutation_options = mutation_codons_flat  # type: ignore[attr-defined]
+
+        # ---------- Stage 4: Pick a ‘best’ mutation per site ---------------
+        if mutation_options:
+            best_mutations: Dict[str, Mutation] = self._select_best_mutations(
+                mutation_options
             )
-            print(f"Mutation options: {mutation_options}")
-            # Convert mutation_options dict to list of Mutation objects
-            mutation_list = []
-            for site_key, mutations in mutation_options.items():
-                for mutation_dict in mutations:
-                    # Assuming mutation_dict contains the necessary data to create a Mutation object
-                    # You may need to adjust this based on your Mutation class structure
-                    mutation_list.extend(mutation_dict.get("mutCodons", []))
-            dom_result.mutation_options = mutation_list
+            # Build a real compatibility matrix for exactly those “best” mutations:
+            #    - create_compatibility_matrix expects a list of entries, each of which
+            #      is a dict with key "overhangs" → {"overhang_options": [...]}
+            #    - here, `m.overhang_options` is already a List[OverhangOption]
+            compat_matrix = MutationOptimizer().create_compatibility_matrix(
+                [
+                    {"overhangs": {"overhang_options": mut.overhang_options}}
+                    for mut in best_mutations.values()
+                ]
+            )
 
-            # Stage 3: Primer Design (Background)
-            if mutation_options:
-                best_mutations = self._select_best_mutations(mutation_options)
+            mutation_set = MutationSet(
+                alt_codons=best_mutations,
+                compatibility=compat_matrix,
+                mut_primer_sets=[],
+            )
 
-                # Convert best_mutations dictionary to a MutationSetCollection object
-                # Get the restriction site keys (rs_keys)
-                # Create a MutationSet object with the best mutations
-                mutation_set = MutationSet(
-                    alt_codons=best_mutations,
-                    compatibility=np.array([[1]]),  # Convert to numpy array
-                    mut_primer_sets=[],
-                )
+            mutation_collection = MutationSetCollection(
+                rs_keys=list(best_mutations.keys()),
+                sets=[mutation_set],
+            )
+            print(
+                "Created MutationSetCollection with rs_keys:",
+                mutation_collection.rs_keys,
+            )
+            # Debug: Write out the mutation collection to JSON for inspection
 
-                # Create the MutationSetCollection with correct parameter names
-                rs_keys = list(mutation_options.keys())
-                mutation_collection = MutationSetCollection(
-                    rs_keys=rs_keys, sets=[mutation_set]
-                )
-                print(f"Created MutationSetCollection with rs_keys: {rs_keys}")
-                self.primer_designer.design_mutation_primers(
-                    mutation_sets=mutation_collection,
-                    primer_name="",
-                    send_update=partial(send_update, step="Primer Design"),
-                    batch_update_interval=1,
-                )
-                # Convert primer results to proper format if needed
-                # dom_result.recommended_primers = primer_results  # Commented out due to type mismatch
+            # Create debug directory if it doesn't exist
+            debug_dir = "debug_output"
+            os.makedirs(debug_dir, exist_ok=True)
+
+            # Create filename with timestamp and sequence info
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"mutation_collection_{seq_name}_{timestamp}.json"
+            filepath = os.path.join(debug_dir, filename)
+
+            # Convert mutation collection to dict for JSON serialization
+            mutation_collection_dict = mutation_collection.model_dump()
+
+            # Write to JSON file
+            with open(filepath, "w") as f:
+                json.dump(mutation_collection_dict, f, indent=2)
+
+            print(f"Mutation collection written to: {filepath}")
+            # ---------- Stage 5: Primer design -----------------------------
+            self.primer_designer.design_mutation_primers(
+                mutation_sets=mutation_collection,
+                primer_name="",  # will use default naming
+                send_update=step("Primer Design"),
+                batch_update_interval=1,
+            )
 
         return dom_result
-        # return dom_result.__dict__
 
-    def _select_best_mutations(self, mutation_options):
-        """
-        Select the best mutations based on a heuristic (e.g., highest codon usage).
-        """
-        best_mutations = {}
-        for site_key, mutations in mutation_options.items():
-            best_mutations[site_key] = max(
-                mutations, key=lambda m: m["mutCodons"][0].codon.usage
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _select_best_mutations(
+        self, mutation_options: Dict[str, List[Mutation]]
+    ) -> Dict[str, Mutation]:
+        """Pick the mutation with the highest *codon‑usage score* at each site."""
+        best_mut: Dict[str, Mutation] = {}
+        for site_key, mut_list in mutation_options.items():
+            best_mut[site_key] = max(
+                mut_list,
+                key=lambda m: m.mut_codons[0].codon.usage if m.mut_codons else 0.0,
             )
-        return best_mutations
+        return best_mut
