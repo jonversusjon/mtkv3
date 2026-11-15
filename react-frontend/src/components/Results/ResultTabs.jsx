@@ -1,11 +1,15 @@
 // Results/ResultTabs.jsx
 import React, { useState, useEffect } from "react";
 import ResultTab from "./ResultTab"; // Ensure this path is correct
+import useJobStatus from "../../hooks/useJobStatus";
 
-const ResultTabs = ({ jobId }) => {
+const ResultTabs = ({ jobId, recoveryBackoffMs }) => {
   // Load sequences from sessionStorage (each sequence gets an id that serves as sequenceIdx)
   const [sequences, setSequences] = useState([]);
   const [activeTab, setActiveTab] = useState(0); // Keep track of the active tab index
+  // One status poll per submission; every tab reads its own sequence's record.
+  const job = useJobStatus(jobId);
+  const recordFor = (idx) => job.sequences.find((s) => s.sequenceIdx === idx);
 
   useEffect(() => {
     // Attempt to load sequence information from sessionStorage
@@ -71,8 +75,9 @@ const ResultTabs = ({ jobId }) => {
         <div className="flex justify-between overflow-x-auto">
           {sequences.map((seq, index) => {
             const isActive = activeTab === index;
-            const isComplete = false; // Replace with your completion logic
-            const notificationCount = 0; // Replace with actual notification count
+            const isComplete = recordFor(seq.id)?.state === "success";
+            const isFailed = recordFor(seq.id)?.state === "failure";
+            const notificationCount = isFailed ? 1 : 0;
 
             return (
               <button
@@ -130,7 +135,7 @@ const ResultTabs = ({ jobId }) => {
       <div className="flex-1 relative">
         {sequences.map((seq, index) => (
           <div
-            key={seq.id}
+            key={`${jobId}:${seq.id}`}
             role="tabpanel"
             aria-labelledby={`tab-button-${seq.id}`}
             id={`tab-content-${seq.id}`}
@@ -138,7 +143,16 @@ const ResultTabs = ({ jobId }) => {
               activeTab === index ? "block" : "hidden"
             }`}
           >
-            <ResultTab jobId={jobId} sequenceIdx={seq.id} />
+            <ResultTab
+              jobId={jobId}
+              sequenceIdx={seq.id}
+              sequenceStatus={recordFor(seq.id)}
+              jobState={job.state}
+              jobError={job.error}
+              recoveryBackoffMs={recoveryBackoffMs}
+              pollError={job.error}
+              onRetry={job.retry}
+            />
           </div>
         ))}
       </div>

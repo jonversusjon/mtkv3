@@ -81,6 +81,7 @@ class ProtocolMaker:
         self.max_mutations = max_mutations
         self.output_tsv_path = output_tsv_path
         self.job_id = job_id
+        self.best_mutations: Dict[str, Mutation] = {}
 
     # ---------------------------------------------------------------------
     # Public API
@@ -116,7 +117,7 @@ class ProtocolMaker:
         print("Valid sequence:", is_valid)
         if not is_valid:
             return dom_result.__dict__
-        dom_result.processed_sequence = processed_seq
+        dom_result.processed_sequence = str(processed_seq)
 
         # ---------- Stage 2: Restriction‑site detection ----------------------
         restriction_sites = self.rs_analyzer.find_restriction_sites(
@@ -124,6 +125,7 @@ class ProtocolMaker:
             step("Restriction Sites"),
         )
         print("Restriction sites:", restriction_sites)
+        dom_result.restriction_sites = restriction_sites  # part of the delivered result
         if not restriction_sites:
             return dom_result.__dict__  # nothing to mutate
 
@@ -148,6 +150,7 @@ class ProtocolMaker:
             best_mutations: Dict[str, Mutation] = self._select_best_mutations(
                 mutation_options
             )
+            self.best_mutations = best_mutations  # exposed for the worker's follow-up step
             # Build a real compatibility matrix for exactly those “best” mutations:
             #    - create_compatibility_matrix expects a list of entries, each of which
             #      is a dict with key "overhangs" → {"overhang_options": [...]}

@@ -2,6 +2,7 @@ from typing import List, Dict, Optional, Any
 
 from flask_backend.models import (
     Mutation,
+    MutationCodon,
     Primer,
     RestrictionSite,
     MutationPrimerSet,
@@ -41,7 +42,9 @@ class DomesticationResult(FrontendFriendly):
     mtk_part_left: str = ""
     mtk_part_right: str = ""
     restriction_sites: List[RestrictionSite] = []
-    mutation_options: List[Mutation] = []
+    # Flat summary of every alternative codon found (what ProtocolMaker assigns);
+    # declared as MutationCodon so it serialises instead of collapsing to {}.
+    mutation_options: List[MutationCodon] = []
     edge_primers: EdgePrimerPair = EdgePrimerPair(forward=Primer(), reverse=Primer())
     mut_primers: List[MutationPrimerSet] = []
     recommended_primers: List[Primer] = []

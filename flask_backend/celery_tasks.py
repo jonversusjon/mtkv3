@@ -4,6 +4,7 @@ import os
 from typing import Optional, Any
 from celery import shared_task, group
 from flask_sse import sse
+from flask_backend import job_state
 from flask_backend.services import GoldenGateUtils, ProtocolMaker
 from flask_backend.models import ProtocolRequest, DomesticationResult, FrontendFriendly
 
@@ -107,144 +108,210 @@ def publish_sse(
         print(f"Problematic payload: {payload}")
         raise e
 
+    # Persist before publishing: SSE is fire-and-forget, the stored copy is what a
+    # late/reconnecting browser recovers.  Never let bookkeeping break the work.
+    try:
+        job_state.append_event(job_id, sequence_idx, json.loads(json.dumps(payload, default=str)))
+    except Exception as e:
+        print(f"Could not persist SSE event for {job_id}:{sequence_idx}: {e}")
+
     sse.publish(
         payload,
         channel=channel,
     )
 
 
+class SequenceError(Exception):
+    """A failure whose message is safe and useful to show to the user."""
+
+
+def _user_message(index: int, exc: Exception) -> str:
+    """Controlled, user-facing text for a worker failure (no tracebacks/internals)."""
+    label = f"Sequence {index + 1}"
+    if isinstance(exc, (SequenceError, ValueError)):
+        return f"{label} could not be processed: {exc}"
+    return (
+        f"{label} could not be processed because of an unexpected internal error "
+        f"({type(exc).__name__}). Please try again; if it persists, contact the administrator."
+    )
+
+
+def _publish_terminal(job_id, index, state, message, **extra):
+    """Tell the browser (best effort) that this sequence reached a terminal state.
+    The authoritative record is job_state; this just avoids waiting for the next poll."""
+    try:
+        publish_sse(
+            job_id=job_id,
+            sequence_idx=index,
+            step="Sequence Status",
+            message=message,
+            status=state,
+            terminal=True,
+            **extra,
+        )
+    except Exception as e:
+        print(f"Could not publish terminal event for {job_id}:{index}: {e}")
+
+
+# Bounded retry of terminal job-state writes (seconds to wait before each retry).
+TERMINAL_WRITE_BACKOFF = (0.2, 0.5, 1.0)
+
+
+def _persist_terminal(write, *args):
+    """Run a job_state terminal write with bounded retry; raises the last error."""
+    return job_state.write_with_retry(write, *args, backoff=TERMINAL_WRITE_BACKOFF)
+
+
 @shared_task(ignore_result=False)
 def process_protocol_sequence(req_dict: dict, index: int):
-    print(f"[START] Process protocol sequence {index}")
+    """Process one sequence and record its terminal outcome (success or failure)
+    under the submission's job_id.  The outcome is written here, by the code that
+    did the work -- not inferred from the parent dispatch task."""
+    job_id = req_dict.get("jobId") or req_dict.get("job_id")
     try:
-        # print(f"Processing sequence {index} with request: {req_dict}")
-        # logger.log_step("TaskStart", f"processing sequence {index}", data=req_dict)
-        req = ProtocolRequest.model_validate(req_dict)
-        print(f"Processing sequence {index} with request: {req}")
-
-        # Validate job_id is not None
-        if req.job_id is None:
-            raise ValueError(f"job_id cannot be None for sequence {index}")
-
-        # Cache the request dict for downstream primer design tasks
-        try:
-            redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
-            print(f"Cached request for job {req.job_id} and sequence {index}")
-        except Exception as e:
-            print(f"Redis caching error for request {req.job_id}:{index}: {str(e)}")
-            # Continue even if caching fails
-
-        # Create progress callback function
-        def progress_callback(
-            step: str, message: str, prog: Optional[float] = None, **kwargs
-        ):
-            publish_sse(
-                job_id=req.job_id,
-                sequence_idx=index,
-                step=step,
-                message=message,
-                prog=prog,
-                **kwargs,
-            )
-
-        # Create the protocol maker with error handling
-        try:
-            # Get codon usage dict and validate it's not None
-            codon_usage_dict = GoldenGateUtils().get_codon_usage_dict(req.species)
-            if codon_usage_dict is None:
-                raise ValueError(
-                    f"Codon usage dictionary is None for species {req.species}"
-                )
-
-            # Get the sequence to domesticate
-            seq = req.sequences_to_domesticate[index]
-
-            protocol_maker = ProtocolMaker(
-                request_idx=index,
-                sequence_to_domesticate=seq,
-                codon_usage_dict=codon_usage_dict,
-                max_mutations=req.max_mut_per_site,
-                template_seq=req.template_sequence,
-                kozak=req.kozak,
-                verbose=req.verbose_mode,
-                job_id=f"{req.job_id}_{index}",
-            )
-        except Exception as e:
-            print(f"Error creating protocol maker for sequence {index}: {str(e)}")
-            raise
-
-        # Execute protocol with error handling
-        print(f"Starting protocol creation for sequence {index}")
-        try:
-            protocol_result = protocol_maker.create_gg_protocol(
-                send_update=progress_callback
-            )
-            # Validate and convert the result to DomesticationResult if needed
-            if isinstance(protocol_result, dict):
-                result = DomesticationResult.model_validate(protocol_result)
-            else:
-                result = protocol_result
-            print(f"Completed protocol creation for sequence {index}")
-        except Exception as e:
-            print(f"Error in create_gg_protocol for sequence {index}: {str(e)}")
-            raise
-
-        # Automatically design custom primers for the best mutations
-        if result.mutation_options:
-            # Select best mutations based on codon usage
-            best_mutations = protocol_maker._select_best_mutations(
-                result.mutation_options
-            )
-
-            # Convert the mutation objects to selected_mutations format {site_key: codon_sequence}
-            selected_mutations = {}
-            for site_key, mutation in best_mutations.items():
-                if mutation.get("mutCodons") and len(mutation["mutCodons"]) > 0:
-                    selected_mutations[site_key] = mutation["mutCodons"][
-                        0
-                    ].codon.codonSequence
-
-            # Design custom primers for these mutations if we found any
-            if selected_mutations:
-                # Generate a hash for the selected mutations for caching
-                mutation_hash = get_mutation_hash(selected_mutations)
-
-                # Design primers
-                primers = protocol_maker.primer_designer.design_custom_primers(
-                    selected_mutations
-                )
-
-                # Cache the designed primers
-                primers_cache_key = f"primers:{req.job_id}:{index}:{mutation_hash}"
-                redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
-
-                # Include in result
-                result.custom_primers = {
-                    "primer_set": primers,
-                    "selected_mutations": selected_mutations,
-                }
-
-                # Publish update
-                progress_callback(
-                    step="custom_primers_step",  # Change from "Custom Primers" to a specific step name
-                    message="Automatically designed custom primers for best mutations",
-                    prog=100,
-                    custom_primers={
-                        "primer_set": primers,
-                        "selected_mutations": selected_mutations,
-                    },
-                )
-
-        print(f"Result for sequence {index}: {result}")
-        return {"sequenceIdx": index, "result": result.model_dump(by_alias=True)}
-
+        output = _run_sequence(req_dict, index)
     except Exception as e:
         print(f"[ERROR] Failed processing sequence {index}: {str(e)}")
         import traceback
 
         print(traceback.format_exc())
-        # Re-raise to mark the task as failed
+        if job_id:
+            message = _user_message(index, e)
+            try:
+                _persist_terminal(job_state.mark_failure, job_id, index, message)
+            except Exception as store_err:
+                # Never replace the original error with a storage error.  The record
+                # stays pending and get_job reports it failed once it is stale.
+                print(f"[ERROR] Could not store failure for {job_id}:{index}: {store_err}")
+            # Terminal feedback is attempted even if storing the failure did not work.
+            _publish_terminal(job_id, index, job_state.FAILURE, message, error=message)
+        # Re-raise the ORIGINAL error to mark the Celery task as failed
         raise
+    if job_id:
+        try:
+            _persist_terminal(job_state.mark_success, job_id, index, output["result"])
+        except Exception as e:
+            # The computed result could not be stored, so it cannot be retrieved:
+            # do not invent a success.  Record an explicit, visible failure instead.
+            print(f"[ERROR] Could not store result for {job_id}:{index}: {e}")
+            message = (
+                f"Sequence {index + 1} finished computing but its result could not be "
+                "stored. Please resubmit; if it persists, contact the administrator."
+            )
+            try:
+                _persist_terminal(job_state.mark_failure, job_id, index, message, "storage_error")
+                _publish_terminal(job_id, index, job_state.FAILURE, message, error=message)
+            except Exception as e2:
+                # Storage is down for failure writes too.  The record stays pending;
+                # get_job reports a stale pending sequence as failed (see job_state).
+                print(f"[ERROR] Could not store failure for {job_id}:{index}: {e2}")
+            raise  # Celery outcome = FAILURE, consistent with the job record
+        _publish_terminal(
+            job_id, index, job_state.SUCCESS, f"Sequence {index + 1} complete"
+        )
+    return output
+
+
+def _run_sequence(req_dict: dict, index: int):
+    print(f"[START] Process protocol sequence {index}")
+    req = ProtocolRequest.model_validate(req_dict)
+    print(f"Processing sequence {index} with request: {req}")
+
+    if req.job_id is None:
+        raise ValueError(f"job_id cannot be None for sequence {index}")
+    if not 0 <= index < len(req.sequences_to_domesticate):
+        raise ValueError(f"sequence index {index} is out of range")
+
+    # Cache the request dict for downstream primer design tasks
+    try:
+        redis_client.set(f"req:{req.job_id}:{index}", json.dumps(req_dict), ex=3600)
+        print(f"Cached request for job {req.job_id} and sequence {index}")
+    except Exception as e:
+        print(f"Redis caching error for request {req.job_id}:{index}: {str(e)}")
+        # Continue even if caching fails
+
+    def progress_callback(
+        step: str, message: str, prog: Optional[float] = None, **kwargs
+    ):
+        publish_sse(
+            job_id=req.job_id,
+            sequence_idx=index,
+            step=step,
+            message=message,
+            prog=prog,
+            **kwargs,
+        )
+
+    codon_usage_dict = GoldenGateUtils().get_codon_usage_dict(req.species)
+    if codon_usage_dict is None:
+        raise SequenceError(f"no codon usage table for species '{req.species}'")
+
+    protocol_maker = ProtocolMaker(
+        request_idx=index,
+        sequence_to_domesticate=req.sequences_to_domesticate[index],
+        codon_usage_dict=codon_usage_dict,
+        max_mutations=req.max_mut_per_site,
+        template_seq=req.template_sequence,
+        kozak=req.kozak,
+        verbose=req.verbose_mode,
+        job_id=f"{req.job_id}_{index}",
+    )
+
+    print(f"Starting protocol creation for sequence {index}")
+    protocol_result = protocol_maker.create_gg_protocol(send_update=progress_callback)
+    if isinstance(protocol_result, dict):
+        result = DomesticationResult.model_validate(protocol_result)
+    else:
+        result = protocol_result
+    print(f"Completed protocol creation for sequence {index}")
+
+    # A sequence rejected during preprocessing is a user-visible failure, not a
+    # "successful" empty result.
+    if not result.processed_sequence:
+        raise SequenceError(
+            "the sequence was rejected during preprocessing (check the sequence "
+            "and the MTK part settings)"
+        )
+
+    # Automatically design custom primers for the best mutations.  The core
+    # protocol (sites, mutations, primers) is already complete here, so a problem in
+    # this optional convenience step is reported on the result rather than
+    # discarding finished work.
+    best_mutations = getattr(protocol_maker, "best_mutations", None)
+    if best_mutations:
+        try:
+            selected_mutations = {
+                site_key: mutation.mut_codons[0].codon.codon_sequence
+                for site_key, mutation in best_mutations.items()
+                if mutation.mut_codons
+            }
+            if selected_mutations:
+                mutation_hash = get_mutation_hash(selected_mutations)
+                primers = protocol_maker.primer_designer.design_custom_primers(
+                    selected_mutations
+                )
+                redis_client.set(
+                    f"primers:{req.job_id}:{index}:{mutation_hash}",
+                    json.dumps(primers),
+                    ex=3600,
+                )
+                custom = {"primer_set": primers, "selected_mutations": selected_mutations}
+                result.custom_primers = custom
+                progress_callback(
+                    step="custom_primers_step",
+                    message="Automatically designed custom primers for best mutations",
+                    prog=100,
+                    custom_primers=custom,
+                )
+        except Exception as e:
+            print(f"Automatic custom primer design failed for sequence {index}: {e}")
+            result.errors = {
+                "customPrimers": "Automatic custom primer design was not completed "
+                f"({type(e).__name__})."
+            }
+
+    print(f"Result for sequence {index}: {result}")
+    return {"sequenceIdx": index, "result": result.model_dump(by_alias=True)}
 
 
 @shared_task(ignore_result=False)
@@ -266,15 +333,8 @@ def generate_protocol_task(req_dict: dict):
 
         print(f"Task group created with ID: {group_result.id}")
 
-        # Monitor initial task status
-        from celery.result import GroupResult
-
-        result = GroupResult.restore(group_result.id)
-        if result:
-            print(
-                f"Group task status: {result.completed_count}/{len(result.children)} completed"
-            )
-
+        # NOTE: this only reports that the sequence tasks were dispatched.  Sequence
+        # outcomes are recorded per job by process_protocol_sequence (see job_state).
         return {
             "status": "started",
             "group_task_id": group_result.id,
@@ -285,6 +345,18 @@ def generate_protocol_task(req_dict: dict):
         import traceback
 
         print(traceback.format_exc())
+        job_id = req_dict.get("jobId") or req_dict.get("job_id")
+        if job_id:
+            message = "The request could not be started: " + (
+                str(e) if isinstance(e, ValueError) else f"internal error ({type(e).__name__})"
+            )
+            try:
+                _persist_terminal(job_state.mark_all_failed, job_id, message)
+            except Exception as store_err:
+                print(f"[ERROR] Could not store dispatch failure for {job_id}: {store_err}")
+            seqs = req_dict.get("sequencesToDomesticate", req_dict.get("sequences_to_domesticate"))
+            for idx in range(len(seqs) if isinstance(seqs, list) else 0):
+                _publish_terminal(job_id, idx, job_state.FAILURE, message, error=message)
         raise
 
 

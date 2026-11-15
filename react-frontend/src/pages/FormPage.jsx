@@ -90,8 +90,14 @@ function FormPage({ showSettings, setShowSettings, setResults }) {
     setError(null);
 
     try {
-      sessionStorage.setItem("formData", JSON.stringify(finalFormData));
+      // The server validates and issues the job id; nothing is stored as "the
+      // current submission" until it has accepted the request.
       const { jobId } = await submitProtocol(finalFormData);
+      // Drop the previous submission's cached events so they can never be shown for this one.
+      Object.keys(sessionStorage)
+        .filter((k) => k.startsWith("sseEvents_"))
+        .forEach((k) => sessionStorage.removeItem(k));
+      sessionStorage.setItem("formData", JSON.stringify(finalFormData));
       sessionStorage.setItem("jobId", jobId);
 
       const placeholders = finalFormData.sequencesToDomesticate.map(

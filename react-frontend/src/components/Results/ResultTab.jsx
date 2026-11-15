@@ -3,8 +3,30 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import useSSE from "../../hooks/useSSE";
 import ProtocolTracker from "../../components/Results/ProtocolTracker";
 import RawSseDisplay from "./RawSseDisplay"; // Import the Raw SSE Display component
+import SequenceStatus from "./SequenceStatus";
+import DurableResult from "./DurableResult";
+import { getJobEvents } from "../../api/api";
 
-const ResultTab = ({ jobId, sequenceIdx }) => {
+// Identity of an event independent of when this browser saw it, so the same
+// server event arriving via SSE and via recovery is only counted once.
+const eventKey = (sequenceIdx, event) => {
+  const { timestamp, clientTimestamp, _idTimestamp, ...rest } = event; // eslint-disable-line no-unused-vars
+  return `seq${sequenceIdx}-${JSON.stringify(rest)}`;
+};
+
+// Delays before each bounded retry of event recovery (so 1 try + 3 retries).
+export const RECOVERY_BACKOFF_MS = [500, 1500, 4000];
+
+const ResultTab = ({
+  jobId,
+  sequenceIdx,
+  sequenceStatus,
+  jobState,
+  jobError,
+  pollError,
+  onRetry,
+  recoveryBackoffMs = RECOVERY_BACKOFF_MS,
+}) => {
   // --- State and Refs ---
   const [rawSseEvents, setRawSseEvents] = useState(() => {
     const savedEvents = sessionStorage.getItem(
@@ -37,13 +59,7 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
 
   const processedEventIds = useRef(
     new Set(
-      rawSseEvents.map(
-        (event) =>
-          `seq${sequenceIdx}-${JSON.stringify({
-            ...event,
-            _idTimestamp: event.clientTimestamp,
-          })}`
-      )
+      rawSseEvents.map((event) => eventKey(sequenceIdx, event))
     )
   );
   const streamClosed = useRef(false);
@@ -217,6 +233,13 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
           `[ResultTab:${sequenceIdx}] processSseEvent: Set hasReceivedData = true.`
         );
       }
+      // Identity: an event for another submission must never be shown here.
+      if (eventData.jobId !== undefined && String(eventData.jobId) !== String(jobId)) {
+        console.warn(
+          `[ResultTab:${sequenceIdx}] processSseEvent: Skipping event for a different job (${eventData.jobId}).`
+        );
+        return;
+      }
       if (
         eventData.sequenceIdx !== undefined &&
         eventData.sequenceIdx !== sequenceIdx
@@ -226,10 +249,8 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
         );
         return;
       }
-      const eventIdSource = { ...eventData };
       const consistentTimestamp = eventData.timestamp || Date.now();
-      eventIdSource._idTimestamp = consistentTimestamp;
-      const eventId = `seq${sequenceIdx}-${JSON.stringify(eventIdSource)}`;
+      const eventId = eventKey(sequenceIdx, eventData);
       if (processedEventIds.current.has(eventId)) {
         return;
       }
@@ -272,6 +293,48 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
   // --- Hook Usage ---
   useSSE(jobId, sequenceIdx, processSseEvent);
 
+  // --- Recovery: SSE is transient. Once the server says this sequence is terminal,
+  // replay its stored events (duplicates are ignored by processSseEvent) so a tab
+  // that connected late, reconnected or reloaded still shows the full result.
+  // Success is recorded only after a valid response; transient failures are retried
+  // with bounded backoff, then surfaced with a manual retry.  The effect is keyed on
+  // job+sequence+state, so unmount/job change cancels pending requests and timers.
+  const [recovery, setRecovery] = useState("idle"); // idle | loading | failed | done
+  const [recoveryRound, setRecoveryRound] = useState(0); // bump = manual retry
+  const terminalState = sequenceStatus?.state;
+  const isTerminal = terminalState === "success" || terminalState === "failure";
+  useEffect(() => {
+    if (!isTerminal) return undefined;
+    let cancelled = false;
+    let timer = null;
+    setRecovery("loading");
+    const attempt = (n) => {
+      getJobEvents(jobId, sequenceIdx)
+        .then((events) => {
+          if (cancelled) return;
+          if (!Array.isArray(events)) throw new Error("Invalid event recovery response.");
+          events.forEach(processSseEvent);
+          setRecovery("done");
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error(`[ResultTab:${sequenceIdx}] Could not recover events (attempt ${n + 1}):`, err);
+          if (n < recoveryBackoffMs.length) {
+            timer = setTimeout(() => attempt(n + 1), recoveryBackoffMs[n]);
+          } else {
+            setRecovery("failed");
+          }
+        });
+    };
+    attempt(0);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // recoveryBackoffMs is a constant per mount; excluded so a new array literal cannot restart recovery
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTerminal, terminalState, jobId, sequenceIdx, processSseEvent, recoveryRound]);
+
   // --- Mount/Unmount Effect ---
   useEffect(() => {
     isMounted.current = true;
@@ -293,10 +356,35 @@ const ResultTab = ({ jobId, sequenceIdx }) => {
   // --- Rendering ---
   return (
     <div className="sequence-results">
+      <SequenceStatus
+        status={sequenceStatus}
+        jobState={jobState}
+        jobError={jobError}
+        pollError={pollError}
+        onRetry={onRetry}
+      />
+
+      {/* Rich events could not be recovered: say so, and let the user retry */}
+      {recovery === "failed" && (
+        <div role="alert" data-testid="recovery-failed"
+          className="mb-4 p-3 border-l-4 border-yellow-500 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-sm">
+          Detailed progress events could not be loaded.{" "}
+          <button type="button" className="underline font-medium"
+            onClick={() => setRecoveryRound((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Authoritative stored result: always shown on success.  Event counts are not
+          proof the computed data is displayed, so it never depends on events. */}
+      {sequenceStatus?.state === "success" && <DurableResult result={sequenceStatus.result} />}
+
       {/* Status Messages */}
       {rawSseEvents.length === 0 &&
         !streamClosed.current &&
-        !hasReceivedData.current && (
+        !hasReceivedData.current &&
+        !sequenceStatus?.state?.match(/success|failure/) && (
           <p className="text-gray-500 dark:text-gray-400 mb-4">
             Connecting to event stream...
           </p>

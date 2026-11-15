@@ -1,0 +1,13 @@
+# lifecycle_probe.py: real worker code, named fixture NLS-mTag-BFP, in-memory redis/SSE
+=== BASELINE (HEAD b80c6cc) ===
+parent dispatch task state : SUCCESS -> {'status': 'started', 'group_task_id': 'g', 'total': 1}
+child sequence task state  : FAILURE -> AttributeError: 'list' object has no attribute 'items'
+SSE steps published        : ['Mutation Analysis', 'Preprocessing', 'Primer Design', 'Restriction Sites']
+terminal SSE event         : False
+durable job record         : none (no way to ask the server whether the sequence finished)
+=== REPAIRED ===
+parent dispatch task state : SUCCESS -> {'status': 'started', 'group_task_id': 'g', 'total': 1}
+child sequence task state  : SUCCESS -> ok
+SSE steps published        : ['Mutation Analysis', 'Preprocessing', 'Primer Design', 'Restriction Sites', 'Sequence Status']
+terminal SSE event         : True
+durable job record         : success ['success']
