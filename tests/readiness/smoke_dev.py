@@ -49,6 +49,7 @@ def main():
     env.pop("FLASK_APP", None)
     procs = []
     with tempfile.TemporaryDirectory() as logdir:
+        env["MTKV3_LOG_DIR"] = f"{logdir}/app-logs"  # keep the caller's logs untouched
         try:
             flask = subprocess.Popen(
                 [sys.executable, "-m", "flask", "--app", "flask_backend.app:create_app",

@@ -11,18 +11,40 @@ import yaml
 import asset_check as ac
 from conftest import REPO
 
-BUNDLE = REPO / "flask_backend" / "static" / "react"
-
 
 # ---- application discovery / clean start -----------------------------------
 def test_flask_discovers_factory_explicitly(tmp_path):
-    env = {**os.environ, "PYTHONPATH": str(REPO), "FLASK_ENV": "development"}
+    env = {**os.environ, "PYTHONPATH": str(REPO), "FLASK_ENV": "development",
+           "MTKV3_LOG_DIR": str(tmp_path / "logs")}
     env.pop("FLASK_APP", None)
     out = subprocess.run(
         [sys.executable, "-m", "flask", "--app", "flask_backend.app:create_app", "routes"],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert "/api/species" in out.stdout
+
+
+def test_log_dir_override_redirects_logs_and_default_is_unchanged(tmp_path):
+    from flask_backend.logger import setup as lsetup
+    import logging
+    import yaml as _y
+    cfg = _y.safe_load((REPO / "flask_backend" / "logger" / "config.yaml").read_text())
+    defaults = {h["filename"] for h in cfg["handlers"].values() if h.get("filename")}
+    assert defaults == {"flask_backend/log_utils/logs/app.log", "flask_backend/log_utils/logs/celery.log"}
+    seen = {}
+    real = logging.config.dictConfig
+    logging.config.dictConfig = lambda c: seen.update(c["handlers"])
+    try:
+        os.environ["MTKV3_LOG_DIR"] = str(tmp_path / "ovr")
+        try:
+            lsetup.setup_logging()
+        finally:
+            del os.environ["MTKV3_LOG_DIR"]
+    finally:
+        logging.config.dictConfig = real
+    files = {pathlib.Path(h["filename"]) for h in seen.values() if h.get("filename")}
+    assert files == {tmp_path / "ovr" / "app.log", tmp_path / "ovr" / "celery.log"}
+    assert (tmp_path / "ovr").is_dir()
 
 
 def test_bare_flask_run_is_not_the_default_any_more():
@@ -33,14 +55,22 @@ def test_bare_flask_run_is_not_the_default_any_more():
     assert "--app" in cmd and "flask_backend.app:create_app" in cmd
 
 
-def test_create_app_starts_without_preexisting_log_dirs(monkeypatch, tmp_path):
-    log_dir = REPO / "flask_backend" / "log_utils" / "logs"
-    shutil.rmtree(log_dir, ignore_errors=True)  # simulate a clean checkout/container
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("FLASK_ENV", "development")
-    from flask_backend.app import create_app
-    create_app()
-    assert log_dir.is_dir()
+def test_create_app_starts_without_preexisting_log_dirs(sandbox):
+    assert not sandbox.log_dir.exists()  # clean checkout/container
+    sandbox.create_app()
+    assert sandbox.log_dir.is_dir()
+    assert (sandbox.log_dir / "app.log").exists()
+
+
+def test_sandbox_logs_are_run_owned_and_sentinels_survive(sandbox):
+    """Destructive clean-start checks act on the sandbox only; sentinels placed in
+    an unrelated directory (and the caller-state guard in conftest) must survive."""
+    sentinel = sandbox.root.parent / "caller_logs" / "app.log"
+    sentinel.parent.mkdir()
+    sentinel.write_text("keep-me")
+    sandbox.create_app()
+    assert sentinel.read_text() == "keep-me"
+    assert sandbox.log_dir.is_dir() and sandbox.log_dir != sentinel.parent
 
 
 # ---- species API -----------------------------------------------------------
@@ -109,18 +139,20 @@ def test_asset_checker_rejects_html_content_type_for_javascript():
 
 # ---- built bundle served by the real Flask app ------------------------------
 @pytest.fixture
-def built_bundle():
-    """Build the bundle with the project's own npm script; fail (never skip) if it can't."""
-    if BUNDLE.exists():
-        shutil.rmtree(BUNDLE)
-    r = subprocess.run(["npm", "run", "build"], cwd=REPO / "react-frontend",
-                       capture_output=True, text=True, timeout=600)
+def built_bundle(sandbox):
+    """Build the bundle with the project's own npm script into the sandbox
+    (vite --outDir); fail (never skip) if it can't.  Cleanup is the sandbox's
+    temp dir, so even a failing build/test leaves the caller's bundle alone."""
+    r = subprocess.run(
+        ["npm", "run", "build", "--", "--outDir", str(sandbox.bundle), "--emptyOutDir"],
+        cwd=REPO / "react-frontend", capture_output=True, text=True, timeout=600)
     assert r.returncode == 0, r.stdout + r.stderr
-    yield BUNDLE
-    shutil.rmtree(BUNDLE, ignore_errors=True)
+    assert (sandbox.bundle / "index.html").is_file()
+    return sandbox.bundle
 
 
-def test_flask_serves_fresh_bundle_with_correct_assets(client, built_bundle):
+def test_flask_serves_fresh_bundle_with_correct_assets(sandbox, built_bundle):
+    client = sandbox.create_app().test_client()
     assets = ac.check_assets(ac.flask_fetch(client))
     assert all(a.startswith("/static/react/assets/") for a in assets)
     # client-side route falls back to index.html
@@ -128,7 +160,8 @@ def test_flask_serves_fresh_bundle_with_correct_assets(client, built_bundle):
     assert r.status_code == 200 and "text/html" in r.content_type
 
 
-def test_flask_rejects_removed_asset_from_built_bundle(client, built_bundle):
+def test_flask_rejects_removed_asset_from_built_bundle(sandbox, built_bundle):
+    client = sandbox.create_app().test_client()
     js = next(p for p in (built_bundle / "assets").glob("*.js"))
     js.unlink()
     with pytest.raises(ac.AssetCheckError, match="missing asset"):
