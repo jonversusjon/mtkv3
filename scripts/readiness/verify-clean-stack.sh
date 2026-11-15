@@ -185,7 +185,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 addcheck() {   # addcheck ID STATUS DETAIL
-  python3 -I -c 'import json,sys,datetime;print(json.dumps({"id":sys.argv[1],"status":sys.argv[2],"detail":sys.argv[3],"at":datetime.datetime.utcnow().isoformat()+"Z"}))' "$1" "$2" "$3" >> "$OUT/checks.jsonl"
+  python3 -I -c 'import json,sys,datetime;print(json.dumps({"id":sys.argv[1],"status":sys.argv[2],"detail":sys.argv[3],"at":datetime.datetime.now(datetime.timezone.utc).isoformat()}))' "$1" "$2" "$3" >> "$OUT/checks.jsonl"
 }
 
 # ---- 1. ephemeral clean checkout of the committed SHA -----------------------------------------
@@ -221,7 +221,8 @@ wait_http "$BASE/api/species" 120 || { compose logs --no-color > "$OUT/logs/stac
 # worker readiness: the real Celery worker must answer a ping (no stale/old worker can: Redis is brand new)
 WORKER_OK=0
 for _ in $(seq 1 60); do
-  if compose exec -T worker celery -A flask_backend.celery_worker.celery inspect ping -t 2 2>/dev/null | grep -q pong; then WORKER_OK=1; break; fi
+  PING="$(compose exec -T worker celery -A flask_backend.celery_worker.celery inspect ping -t 5 2>/dev/null)"
+  case "$PING" in *pong*) WORKER_OK=1; break ;; esac     # (no `| grep -q`: pipefail + SIGPIPE would misreport)
   sleep 2
 done
 [ "$WORKER_OK" = 1 ] || infra_fail "Celery worker never answered ping"
@@ -313,7 +314,7 @@ cd "$CHK" && cleanup; cd "$ROOT"
 python3 -I - "$OUT" <<'E_PY'
 import json, sys, datetime, pathlib
 p = pathlib.Path(sys.argv[1]) / "environment.json"
-d = json.loads(p.read_text()); d["finished_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+d = json.loads(p.read_text()); d["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 p.write_text(json.dumps(d, indent=1))
 E_PY
 python3 -I scripts/readiness/summarize_evidence.py "$OUT" "$ROOT/$BROWSER_DIR/required-checks.txt" "$PW_EXIT"
