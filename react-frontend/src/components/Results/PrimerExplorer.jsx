@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { toast } from "react-toastify";
+import { exportPrimers } from "../../api/api";
 
 /**
  * PrimerExplorer Component
@@ -10,6 +12,7 @@ const PrimerExplorer = ({ stepSseData }) => {
   // State to store multiple primer sets (recommended and custom)
   const [primerSets, setPrimerSets] = useState([]);
   const [selectedSetIndex, setSelectedSetIndex] = useState(0);
+  const [failures, setFailures] = useState([]);
 
   // State to track copy button confirmation
   const [copiedStates, setCopiedStates] = useState({});
@@ -46,28 +49,43 @@ const PrimerExplorer = ({ stepSseData }) => {
       });
     }
 
-    // Handle custom designed primers (from Stage 3)
-    if (stepSseData.custom_primers && stepSseData.custom_primers.primer_set) {
-      const primerSet = stepSseData.custom_primers.primer_set;
-
-      // Add as a new set with metadata
+    // Custom designed primers (user-selected or automatic).  The list holds every
+    // outcome, de-duplicated by task id; the same outcome can be re-delivered (SSE,
+    // recovery, polling) and must appear once.
+    const outcomes = [...(stepSseData.customPrimersList || [])];
+    if (stepSseData.custom_primers) outcomes.push(stepSseData.custom_primers); // legacy shape
+    outcomes.forEach((outcome) => {
+      if (outcome.status === "failure") {
+        setFailures((prev) =>
+          prev.some((f) => f.taskId === outcome.taskId && f.error === outcome.error)
+            ? prev
+            : [...prev, outcome]
+        );
+        return;
+      }
+      const primerSet = outcome.primerSet || outcome.primer_set;
+      if (!primerSet) return;
+      const selected = outcome.selectedMutations || outcome.selected_mutations;
+      const setId = `custom-${
+        outcome.taskId ||
+        (Array.isArray(selected) ? JSON.stringify(selected) : JSON.stringify(primerSet))
+      }`;
       setPrimerSets((prevSets) => {
-        const setId = `custom-${Date.now()}`;
-        const newSet = {
-          id: setId,
-          name: `Custom Primer Set ${prevSets.length}`,
-          isCustom: true,
-          selected_mutations: stepSseData.custom_primers.selected_mutations,
-          mutPrimerPairs: primerSet.mutPrimerPairs || [],
-          timestamp: Date.now(),
-        };
-
-        // Auto-select the new custom set
-        setSelectedSetIndex(prevSets.length);
-
-        return [...prevSets, newSet];
+        if (prevSets.some((set) => set.id === setId)) return prevSets;
+        setSelectedSetIndex(prevSets.length); // show the newest custom set
+        return [
+          ...prevSets,
+          {
+            id: setId,
+            name: `Custom Primer Set ${prevSets.filter((x) => x.isCustom).length + 1}`,
+            isCustom: true,
+            selectedMutations: selected,
+            mutPrimerPairs: primerSet.mutPrimerPairs || [],
+            timestamp: Date.now(),
+          },
+        ];
       });
-    }
+    });
 
     // Legacy support for older data format
     if (stepSseData.primers && Array.isArray(stepSseData.primers)) {
@@ -119,6 +137,36 @@ const PrimerExplorer = ({ stepSseData }) => {
   const copyPrimerSetForSnapGene = (primerSet, setIndex) => {
     const tsvContent = formatPrimersForSnapGene(primerSet);
     copyToClipboard(tsvContent, `primer-set-${setIndex}`);
+  };
+
+  // Download TSV: a server-written file (POST /api/export, then GET the returned URL),
+  // separate from the client-side clipboard copy above.  The rows are exactly the
+  // displayed primer set's forward/reverse primers.  The server's TSV has an Amplicon
+  // column, but primer pairs carry no amplicon length (their `position` is the
+  // restriction-site position, a different quantity), so it is left empty, not invented.
+  const [downloading, setDownloading] = useState({});
+  const downloadPrimerSetTsv = async (primerSet, setIndex) => {
+    const key = `primer-set-${setIndex}`;
+    const rows = primerSet.mutPrimerPairs.flatMap((pair) => [
+      [pair.forward.name, pair.forward.sequence, ""],
+      [pair.reverse.name, pair.reverse.sequence, ""],
+    ]);
+    setDownloading((p) => ({ ...p, [key]: true }));
+    try {
+      const { filename, blob } = await exportPrimers(rows);
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (err) {
+      toast.error(`TSV export failed: ${err.message}`);
+    } finally {
+      setDownloading((p) => ({ ...p, [key]: false }));
+    }
   };
 
   // Primer Set Selector Component
@@ -180,6 +228,7 @@ const PrimerExplorer = ({ stepSseData }) => {
               </span>
             )}
           </h3>
+          <div className="flex gap-2">
           <button
             className="text-sm text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 px-3 py-1 rounded-sm flex items-center gap-1"
             onClick={() => copyPrimerSetForSnapGene(primerSet, setIndex)}
@@ -202,7 +251,23 @@ const PrimerExplorer = ({ stepSseData }) => {
               ? "Copied for SnapGene!"
               : "Copy All for SnapGene"}
           </button>
+            <button
+              className="text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-60 px-3 py-1 rounded-sm"
+              disabled={!!downloading[`primer-set-${setIndex}`]}
+              onClick={() => downloadPrimerSetTsv(primerSet, setIndex)}
+            >
+              {downloading[`primer-set-${setIndex}`] ? "Preparing TSV..." : "Download TSV"}
+            </button>
+          </div>
         </div>
+        {Array.isArray(primerSet.selectedMutations) && (
+          <p className="mb-3 text-sm text-gray-600 dark:text-gray-400" data-testid="selected-mutations">
+            Selected mutations:{" "}
+            {primerSet.selectedMutations
+              .map((m) => `${m.siteKey}=${m.codonSequence}`)
+              .join(", ")}
+          </p>
+        )}
         {primerSet.mutPrimerPairs.map((pair, pairIndex) => (
           <div
             key={`primer-pair-${primerSet.id}-${pairIndex}`}
@@ -444,6 +509,13 @@ const PrimerExplorer = ({ stepSseData }) => {
           Primer Explorer
         </h2>
       </div>
+
+      {failures.map((f, i) => (
+        <div key={`failure-${i}`} role="alert" data-testid="custom-primer-failure"
+          className="mt-2 p-3 border-l-4 border-red-500 bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 rounded-sm">
+          {f.error}
+        </div>
+      ))}
 
       {primerSets.length > 0 ? (
         <>

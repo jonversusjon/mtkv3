@@ -295,7 +295,7 @@ def test_no_public_failure_injection_surface(lifecycle):
 def test_optional_custom_primer_step_failure_keeps_finished_work_and_is_reported(lifecycle, monkeypatch):
     """The core protocol finished; a problem in the optional automatic custom-primer
     step must neither discard it nor be silent."""
-    def boom(self, selected):
+    def boom(self, selected, options):
         raise RuntimeError("primer3 exploded")
 
     monkeypatch.setattr("flask_backend.services.primer_designer.PrimerDesigner.design_custom_primers", boom)

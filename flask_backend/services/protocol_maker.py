@@ -82,6 +82,7 @@ class ProtocolMaker:
         self.output_tsv_path = output_tsv_path
         self.job_id = job_id
         self.best_mutations: Dict[str, Mutation] = {}
+        self.mutation_options: Dict[str, List[Mutation]] = {}
 
     # ---------------------------------------------------------------------
     # Public API
@@ -135,6 +136,7 @@ class ProtocolMaker:
             step("Mutation Analysis"),
         )  # Dict[str, List[Mutation]]
         print("Mutation options:", mutation_options)
+        self.mutation_options = mutation_options  # exposed for custom primer design
 
         # Flatten all *MutationCodon* objects just for summary output
         mutation_codons_flat: List[Any] = [

@@ -7,7 +7,11 @@ from flask import (
     stream_with_context,
 )
 from functools import wraps
+import csv
+import os
+import re
 import time
+import uuid
 import json
 
 from flask_backend import job_state
@@ -250,34 +254,84 @@ def get_task_status(task_id):
     elif async_result.state == "SUCCESS":
         res = async_result.result
         response["result"] = res.get("result") if isinstance(res, dict) else res
+        if isinstance(res, dict) and "sequenceIdx" in res:
+            response["jobId"] = res.get("jobId")
+            response["sequenceIdx"] = res["sequenceIdx"]
     elif async_result.state == "FAILURE":
         response["error"] = str(async_result.result)
 
     return jsonify(response)
 
 
+def _export_dir():
+    """Where TSV exports are written: ``EXPORT_DIR`` if configured, else the app's
+    own static/exports (anchored to the app, never to the process cwd)."""
+    configured = current_app.config.get("EXPORT_DIR")
+    return configured or os.path.join(current_app.root_path, "static", "exports")
+
+
+def _tsv_cell(value):
+    """One TSV cell; cells that would break the row/column structure are rejected."""
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+        raise ValueError("each primer field must be text or a number")
+    text = str(value)
+    if any(c in text for c in "\t\r\n"):
+        raise ValueError("primer fields must not contain tabs or line breaks")
+    return text
+
+
 @api.route("/export", methods=["POST"])
 @handle_errors
 def export_protocol():
-    """Export protocol primers to a TSV file."""
-    data = request.get_json()
-    primers = data.get("primers", [])
+    """Export primers (``[name, sequence, amplicon]`` rows) to a TSV file and
+    return its download location (``GET`` that URL to retrieve the file)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+    primers = data.get("primers")
     if not primers:
         return jsonify({"error": "No primers to export"}), 400
+    if not isinstance(primers, list):
+        return jsonify({"error": "primers must be a list"}), 400
+    rows = []
+    for i, primer in enumerate(primers):
+        if not isinstance(primer, (list, tuple)) or len(primer) != 3:
+            return jsonify({"error": f"primers[{i}] must be [name, sequence, amplicon]"}), 400
+        try:
+            rows.append([_tsv_cell(v) for v in primer])
+        except ValueError as e:
+            return jsonify({"error": f"primers[{i}]: {e}"}), 400
 
-    filename = f"primers_{int(time.time())}.tsv"
-    filepath = f"static/exports/{filename}"
-
+    filename = f"primers_{int(time.time())}_{uuid.uuid4().hex[:8]}.tsv"
+    export_dir = _export_dir()
     try:
-        with open(filepath, "w") as f:
-            f.write("Primer Name\tSequence\tAmplicon\n")
-            for primer in primers:
-                f.write(f"{primer[0]}\t{primer[1]}\t{primer[2]}\n")
-        return jsonify({"download_url": f"/static/exports/{filename}"})
-    except IOError as e:
+        os.makedirs(export_dir, exist_ok=True)
+        with open(os.path.join(export_dir, filename), "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter="\t", lineterminator="\n")
+            writer.writerow(["Primer Name", "Sequence", "Amplicon"])
+            writer.writerows(rows)
+    except OSError as e:
         print(e)
-        # logger.error(f"Failed to write export file: {e}", exc_info=True)
         return jsonify({"error": "Failed to create export file"}), 500
+    return jsonify({"download_url": f"/api/export/{filename}"})
+
+
+_EXPORT_NAME = re.compile(r"^primers_\d+_[0-9a-f]{8}\.tsv$")
+
+
+@api.route("/export/<filename>", methods=["GET"])
+def download_export(filename):
+    """Serve a previously created TSV export directly from the API."""
+    if not _EXPORT_NAME.match(filename):
+        return jsonify({"error": "Unknown export"}), 404
+    from flask import send_from_directory
+
+    return send_from_directory(
+        os.path.abspath(_export_dir()),
+        filename,
+        mimetype="text/tab-separated-values",
+        as_attachment=True,
+    )
 
 
 @api.route("/species", methods=["GET"])
@@ -317,32 +371,71 @@ def get_dummy_data():
     return jsonify({})
 
 
+def _parse_sequence_idx(value):
+    """A non-negative integer index (0 is the first sequence). Returns None if invalid."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
 @api.route("/design_primers", methods=["POST"])
 @handle_errors
 def design_primers():
     """
     API endpoint to design primers for user-selected mutations.
+
+    The work is asynchronous: the response carries the Celery ``task_id``; the
+    result is published on the sequence's SSE channel and is available from
+    ``GET /api/task-status/<task_id>``.
     """
-    data = request.json
-    if not data:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
         return jsonify({"error": "No data provided"}), 400
 
-    # logger.log_step("API", "design_primers", data)
     job_id = data.get("job_id")
-    sequence_idx = data.get("sequence_idx")
+    sequence_idx = _parse_sequence_idx(data.get("sequence_idx"))
     selected_mutations = data.get("selected_mutations")
 
-    # Validate inputs
-    if not job_id or not sequence_idx or not selected_mutations:
-        return jsonify({"error": "Missing required parameters"}), 400
+    if not isinstance(job_id, str) or not job_id.strip():
+        return jsonify({"error": "job_id is required"}), 400
+    if sequence_idx is None:
+        return jsonify({"error": "sequence_idx must be a non-negative integer"}), 400
+    if (
+        not isinstance(selected_mutations, dict)
+        or not selected_mutations
+        or not all(
+            isinstance(k, str) and isinstance(v, str) and v
+            for k, v in selected_mutations.items()
+        )
+    ):
+        return jsonify({"error": "selected_mutations must map site keys to codon sequences"}), 400
 
-    # Start the Celery task
+    job = job_state.get_job(job_id)
+    if job is None:
+        return jsonify({"error": "Unknown job"}), 404
+    if sequence_idx >= len(job.get("sequences", [])):
+        return jsonify({"error": "sequence_idx is out of range for this job"}), 400
+
     celery = get_celery_instance()
-    task = celery.send_task(
-        "flask_backend.celery_tasks.design_primers_task",
-        args=[job_id, sequence_idx, selected_mutations],
-    )
+    try:
+        task = celery.send_task(
+            "flask_backend.celery_tasks.design_primers_task",
+            args=[job_id, sequence_idx, selected_mutations],
+        )
+    except Exception as e:  # broker unreachable etc.
+        print(f"Could not dispatch primer design: {e}")
+        return jsonify({"error": "Could not start primer design; please try again."}), 503
 
     return jsonify(
-        {"status": "success", "message": "Primer design started", "task_id": task.id}
-    )
+        {
+            "status": "success",
+            "message": "Primer design started",
+            "task_id": task.id,
+            "job_id": job_id,
+            "sequence_idx": sequence_idx,
+        }
+    ), 202

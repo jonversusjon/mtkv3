@@ -1,6 +1,6 @@
 import React from "react";
 import RestrictionSite from "./RestrictionSite";
-import { groupUniqueCodons } from "../../utils/mutationUtils";
+import { groupUniqueCodons, sortedCodonSequences } from "../../utils/mutationUtils";
 const MutationExplorerContainer = ({
   restrictionSites,
   selectedCodonOption = {}, // safeguard default value
@@ -39,7 +39,7 @@ const MutationExplorerContainer = ({
         const [groupKey, optionIndex] = selectedOption.split(":");
         const groups = groupUniqueCodons(site);
         const group = groups[groupKey] || {};
-        const codonSequences = Object.keys(group);
+        const codonSequences = sortedCodonSequences(group);
         const codon =
           group && codonSequences[optionIndex]
             ? group[codonSequences[optionIndex]].codon

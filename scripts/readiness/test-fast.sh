@@ -38,6 +38,7 @@ own_if_absent "$ROOT/flask_backend/static/react"
 own_if_absent "$ROOT/flask_backend/log_utils"
 own_if_absent "$ROOT/flask_backend/log_utils/logs"
 own_if_absent "$ROOT/flask_backend/logs"
+own_if_absent "$ROOT/flask_backend/static/exports"   # export tests isolate their own dir; this guards stray writes
 
 die() { echo "test-fast: ERROR: $*" >&2; exit 1; }
 
@@ -46,7 +47,7 @@ SUITES=(startup lifecycle followups)
 declare -A SUITE_PY=( [startup]="tests/readiness/test_startup.py"
                       [lifecycle]="tests/readiness/test_lifecycle.py"
                       [followups]="tests/readiness/test_followups.py" )
-declare -A SUITE_FRONTEND=( [startup]=1 [lifecycle]=1 )   # suites that also run vitest
+declare -A SUITE_FRONTEND=( [startup]=1 [lifecycle]=1 [followups]=1 )   # suites that also run vitest
 declare -A SUITE_SMOKE=( [startup]="tests/readiness/smoke_dev.py" )
 
 usage() { echo "usage: $0 <startup|lifecycle|followups|all>..." >&2; exit 2; }
