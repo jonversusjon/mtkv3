@@ -363,3 +363,138 @@ def test_failure_write_also_failing_leaves_bounded_honest_state(lifecycle, monke
     monkeypatch.setattr(js, "STALE_PENDING_SECONDS", -1)
     stale = job(lifecycle, "j-direct")
     assert stale["state"] == "failure" and stale["sequences"][0]["errorCode"] == "stalled"
+
+
+# ---- round 2: post-dispatch metadata + worker-error persistence ------------------
+def _fast_metadata_backoff(monkeypatch):
+    import importlib
+
+    api_routes = importlib.import_module("flask_backend.routes.api")  # the module, not the Blueprint
+    monkeypatch.setattr(api_routes, "METADATA_WRITE_BACKOFF", (0, 0, 0))
+
+
+def test_transient_task_id_write_failure_after_dispatch_still_returns_job_identity(lifecycle, monkeypatch):
+    _fast_metadata_backoff(monkeypatch)
+    js = lifecycle.job_state
+    real, calls = js.set_task_id, {"n": 0}
+
+    def flaky(*a):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("metadata temporarily unavailable")
+        return real(*a)
+
+    monkeypatch.setattr(js, "set_task_id", flaky)
+    resp, data = submit(lifecycle, payload())
+    assert resp.status_code == 202 and data["job_id"] and data["task_id"] == "parent-1"
+    assert len(lifecycle.sent) == 1 and calls["n"] == 2 and "warning" not in data
+    assert job(lifecycle, data["job_id"])["taskId"] == "parent-1"
+
+
+def test_persistent_task_id_write_failure_after_dispatch_degrades_honestly(lifecycle, monkeypatch):
+    _fast_metadata_backoff(monkeypatch)
+
+    def down(*a):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(lifecycle.job_state, "set_task_id", down)
+    resp, data = submit(lifecycle, payload())
+    assert resp.status_code == 202 and data["job_id"] and data["task_id"] == "parent-1"
+    assert "could not be recorded" in data["warning"]
+    assert job(lifecycle, data["job_id"])["sequences"]  # work remains reachable by job_id
+
+
+def test_dispatch_error_metadata_failure_does_not_mask_the_503(lifecycle, monkeypatch):
+    _fast_metadata_backoff(monkeypatch)
+
+    class Down:
+        def send_task(self, *a, **k):
+            raise ConnectionError("no broker")
+
+    def down(*a, **k):
+        raise ConnectionError("redis down")
+
+    lifecycle.app.extensions["celery"] = Down()
+    monkeypatch.setattr(lifecycle.job_state, "mark_all_failed", down)
+    resp, data = submit(lifecycle, payload())
+    assert resp.status_code == 503 and data["job_id"] and "try again" in data["error"]
+
+
+def _controlled_failure(lifecycle, monkeypatch):
+    class Boom:
+        def __init__(self, *a, **k):
+            raise ValueError("codon table is unusable")
+
+    monkeypatch.setattr(lifecycle.tasks, "ProtocolMaker", Boom)
+    monkeypatch.setattr(lifecycle.tasks, "TERMINAL_WRITE_BACKOFF", (0, 0, 0))
+
+
+def test_worker_error_failure_write_is_retried_and_recovers(lifecycle, monkeypatch):
+    _controlled_failure(lifecycle, monkeypatch)
+    js = lifecycle.job_state
+    real, calls = js.mark_failure, {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("redis blip")
+        return real(*a, **k)
+
+    monkeypatch.setattr(js, "mark_failure", flaky)
+    res = _direct_child(lifecycle)
+    assert res.state == "FAILURE" and isinstance(res.result, ValueError)
+    seq = job(lifecycle, "j-direct")["sequences"][0]
+    assert seq["state"] == "failure" and "codon table is unusable" in seq["error"]
+    assert calls["n"] == 2
+
+
+def test_worker_error_permanent_storage_failure_keeps_original_error_and_publishes_terminal(lifecycle, monkeypatch):
+    _controlled_failure(lifecycle, monkeypatch)
+    calls = {"n": 0}
+
+    def down(*a, **k):
+        calls["n"] += 1
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(lifecycle.job_state, "mark_failure", down)
+    res = _direct_child(lifecycle)
+    assert res.state == "FAILURE"
+    assert isinstance(res.result, ValueError) and "codon table" in str(res.result)  # not the ConnectionError
+    assert calls["n"] == 4  # 1 try + 3 bounded retries
+    terminal = [p for _, p in lifecycle.sse.published if p.get("terminal")]
+    assert terminal and terminal[-1]["status"] == "failure" and "codon table" in terminal[-1]["message"]
+    assert job(lifecycle, "j-direct")["state"] == "pending"  # bounded: stale-pending reports it later
+
+
+def test_parent_dispatch_error_retries_storage_and_publishes_terminal(lifecycle, monkeypatch):
+    monkeypatch.setattr(lifecycle.tasks, "group", lambda sigs: (_ for _ in ()).throw(RuntimeError("broker gone")))
+    monkeypatch.setattr(lifecycle.tasks, "TERMINAL_WRITE_BACKOFF", (0, 0, 0))
+    js = lifecycle.job_state
+    real, calls = js.mark_all_failed, {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("blip")
+        return real(*a, **k)
+
+    monkeypatch.setattr(js, "mark_all_failed", flaky)
+    _, data = submit(lifecycle, payload())
+    assert job(lifecycle, data["job_id"])["sequences"][0]["errorCode"] == "dispatch_error"
+    terminal = [p for _, p in lifecycle.sse.published if p.get("terminal")]
+    assert terminal and terminal[-1]["status"] == "failure"
+
+
+def test_parent_dispatch_error_permanent_storage_failure_keeps_original_error(lifecycle, monkeypatch):
+    monkeypatch.setattr(lifecycle.tasks, "group", lambda sigs: (_ for _ in ()).throw(RuntimeError("broker gone")))
+    monkeypatch.setattr(lifecycle.tasks, "TERMINAL_WRITE_BACKOFF", (0, 0, 0))
+
+    def down(*a, **k):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(lifecycle.job_state, "mark_all_failed", down)
+    _, data = submit(lifecycle, payload())
+    parent = lifecycle.app.extensions["celery"].AsyncResult(data["task_id"])
+    assert parent.state == "FAILURE" and isinstance(parent.result, RuntimeError)
+    terminal = [p for _, p in lifecycle.sse.published if p.get("terminal")]
+    assert terminal and terminal[-1]["status"] == "failure"

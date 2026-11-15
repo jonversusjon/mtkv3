@@ -83,6 +83,22 @@ def create_job(job_id: str, total: int) -> None:
         _put(_seq_key(job_id, idx), {"sequenceIdx": idx, "state": PENDING})
 
 
+def write_with_retry(write, *args, backoff=(0.2, 0.5, 1.0)):
+    """Run a storage write, retrying transient errors a bounded number of times
+    (``len(backoff)`` retries, sleeping ``backoff[i]`` seconds before each).
+    Raises the last error if every attempt fails; never retries forever."""
+    last = None
+    for delay in (0,) + tuple(backoff):
+        if delay:
+            time.sleep(delay)
+        try:
+            return write(*args)
+        except Exception as e:  # storage/connection errors are all treated as transient here
+            last = e
+            print(f"Job-state write failed ({type(e).__name__}); attempts are bounded")
+    raise last
+
+
 def set_task_id(job_id: str, task_id: str) -> None:
     job = _get(_job_key(job_id)) or {"jobId": job_id}
     job["taskId"] = task_id

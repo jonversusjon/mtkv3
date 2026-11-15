@@ -4,6 +4,7 @@ import useSSE from "../../hooks/useSSE";
 import ProtocolTracker from "../../components/Results/ProtocolTracker";
 import RawSseDisplay from "./RawSseDisplay"; // Import the Raw SSE Display component
 import SequenceStatus from "./SequenceStatus";
+import DurableResult from "./DurableResult";
 import { getJobEvents } from "../../api/api";
 
 // Identity of an event independent of when this browser saw it, so the same
@@ -375,15 +376,9 @@ const ResultTab = ({
         </div>
       )}
 
-      {/* Authoritative stored result: shown whenever the rich view has nothing to show */}
-      {sequenceStatus?.state === "success" && rawSseEvents.length === 0 && (
-        <details open data-testid="durable-result" className="mb-4">
-          <summary className="font-medium">Result</summary>
-          <pre className="overflow-x-auto text-sm p-2 border rounded">
-            {JSON.stringify(sequenceStatus.result ?? {}, null, 2)}
-          </pre>
-        </details>
-      )}
+      {/* Authoritative stored result: always shown on success.  Event counts are not
+          proof the computed data is displayed, so it never depends on events. */}
+      {sequenceStatus?.state === "success" && <DurableResult result={sequenceStatus.result} />}
 
       {/* Status Messages */}
       {rawSseEvents.length === 0 &&

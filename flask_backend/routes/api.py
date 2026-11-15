@@ -93,6 +93,10 @@ def _snake(name):
     return "".join("_" + c.lower() if c.isupper() else c for c in name)
 
 
+# Bounded retry (seconds before each retry) for post-dispatch job metadata writes.
+METADATA_WRITE_BACKOFF = (0.05, 0.1, 0.2)
+
+
 @api.route("/generate_protocol", methods=["POST"])
 @handle_errors
 def generate_protocol():
@@ -133,19 +137,32 @@ def generate_protocol():
             "flask_backend.celery_tasks.generate_protocol_task", args=[data]
         )
     except Exception as e:  # broker unreachable etc.
-        job_state.mark_all_failed(job_id, f"Could not start processing: {e}", "dispatch_error")
+        try:
+            job_state.write_with_retry(
+                job_state.mark_all_failed, job_id, f"Could not start processing: {e}", "dispatch_error",
+                backoff=METADATA_WRITE_BACKOFF,
+            )
+        except Exception as store_err:  # keep the honest 503 + job_id; stale-pending reporting covers the record
+            print(f"Could not record dispatch failure for {job_id}: {store_err}")
         return jsonify({"error": "Could not start processing; please try again.", "job_id": job_id}), 503
-    job_state.set_task_id(job_id, task.id)
+    # Work is already dispatched: recording the task id is optional metadata.  Retry
+    # briefly, but never turn an accepted submission into an error without its job_id.
+    response = {
+        "job_id": job_id,
+        "jobId": job_id,
+        "task_id": task.id,
+        "total": total,
+        "message": "Protocol generation started - primers will be automatically designed",
+    }
+    try:
+        job_state.write_with_retry(
+            job_state.set_task_id, job_id, task.id, backoff=METADATA_WRITE_BACKOFF
+        )
+    except Exception as store_err:
+        print(f"Could not record task id for {job_id}: {store_err}")
+        response["warning"] = "Submission accepted; task metadata could not be recorded."
 
-    return jsonify(
-        {
-            "job_id": job_id,
-            "jobId": job_id,
-            "task_id": task.id,
-            "total": total,
-            "message": "Protocol generation started - primers will be automatically designed",
-        }
-    ), 202
+    return jsonify(response), 202
 
 
 @api.route("/jobs/<job_id>", methods=["GET"])

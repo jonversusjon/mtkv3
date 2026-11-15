@@ -190,4 +190,39 @@ describe("results lifecycle in the browser", () => {
     expect(sessionStorage.getItem("sseEvents_A_0")).toBeNull();
     expect(sessionStorage.getItem("sseEvents_B_0")).toBeNull();
   });
+
+  // ---- round 2 F3: stored result is visible independent of events ----
+  const fullJob = { A: { jobId: "A", state: "success", sequences: [{ sequenceIdx: 0, state: "success", result: {
+    processedSequence: "ATGGCCAAATAA", mtkPartLeft: "3", mtkPartRight: "4",
+    restrictionSites: [{ enzyme: "BsaI", recognitionSeq: "GGTCTC", position: 7, frame: 1, strand: "+" }],
+    mutationOptions: [{}, {}],
+  } }] } };
+
+  const withEvents = (events) => vi.stubGlobal("fetch", vi.fn((url) =>
+    String(url).includes("/events") ? reply({ events }) : reply(fullJob.A)));
+
+  it.each([
+    ["status-only", [{ jobId: "A", sequenceIdx: 0, step: "Sequence Status", message: "Sequence 1 complete", status: "success", terminal: true }]],
+    ["progress-only", [{ jobId: "A", sequenceIdx: 0, step: "Restriction Sites", message: "Found 1 restriction sites" }]],
+  ])("keeps the readable stored result visible with %s recovered events", async (_n, events) => {
+    seedForm(["alpha"]);
+    withEvents(events);
+    render(<ResultTabs jobId="A" recoveryBackoffMs={[1, 1]} />);
+    await screen.findByText("Show Raw SSE Events"); // events were recovered and counted
+    const dr = screen.getByTestId("durable-result");
+    expect(dr).toHaveTextContent("ATGGCCAAATAA");
+    expect(screen.getByTestId("durable-restriction-sites")).toHaveTextContent(/BsaI.*GGTCTC.*position 7/);
+  });
+
+  it("shows readable summary when no events exist, and says so when the stored result is empty", async () => {
+    seedForm(["alpha"]);
+    withEvents([]);
+    const { unmount } = render(<ResultTabs jobId="A" recoveryBackoffMs={[1, 1]} />);
+    expect(await screen.findByTestId("durable-processed-dna")).toHaveTextContent("ATGGCCAAATAA");
+    unmount();
+    vi.stubGlobal("fetch", vi.fn((url) => String(url).includes("/events") ? reply({ events: [] })
+      : reply({ jobId: "A", state: "success", sequences: [{ sequenceIdx: 0, state: "success", result: {} }] })));
+    render(<ResultTabs jobId="A" recoveryBackoffMs={[1, 1]} />);
+    expect(await screen.findByTestId("durable-result-empty")).toHaveTextContent(/no result data/i);
+  });
 });

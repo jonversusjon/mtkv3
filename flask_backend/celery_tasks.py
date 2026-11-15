@@ -158,19 +158,8 @@ TERMINAL_WRITE_BACKOFF = (0.2, 0.5, 1.0)
 
 
 def _persist_terminal(write, *args):
-    """Run a job_state terminal write, retrying transient storage errors a bounded
-    number of times.  Raises the last error if every attempt fails."""
-    import time
-
-    for delay in (None,) + tuple(TERMINAL_WRITE_BACKOFF):
-        if delay:
-            time.sleep(delay)
-        try:
-            return write(*args)
-        except Exception as e:
-            last = e
-            print(f"Terminal job-state write failed ({type(e).__name__}); retrying")
-    raise last
+    """Run a job_state terminal write with bounded retry; raises the last error."""
+    return job_state.write_with_retry(write, *args, backoff=TERMINAL_WRITE_BACKOFF)
 
 
 @shared_task(ignore_result=False)
@@ -188,9 +177,15 @@ def process_protocol_sequence(req_dict: dict, index: int):
         print(traceback.format_exc())
         if job_id:
             message = _user_message(index, e)
-            job_state.mark_failure(job_id, index, message)
+            try:
+                _persist_terminal(job_state.mark_failure, job_id, index, message)
+            except Exception as store_err:
+                # Never replace the original error with a storage error.  The record
+                # stays pending and get_job reports it failed once it is stale.
+                print(f"[ERROR] Could not store failure for {job_id}:{index}: {store_err}")
+            # Terminal feedback is attempted even if storing the failure did not work.
             _publish_terminal(job_id, index, job_state.FAILURE, message, error=message)
-        # Re-raise to mark the Celery task as failed
+        # Re-raise the ORIGINAL error to mark the Celery task as failed
         raise
     if job_id:
         try:
@@ -352,11 +347,16 @@ def generate_protocol_task(req_dict: dict):
         print(traceback.format_exc())
         job_id = req_dict.get("jobId") or req_dict.get("job_id")
         if job_id:
-            job_state.mark_all_failed(
-                job_id,
-                "The request could not be started: "
-                + (str(e) if isinstance(e, ValueError) else f"internal error ({type(e).__name__})"),
+            message = "The request could not be started: " + (
+                str(e) if isinstance(e, ValueError) else f"internal error ({type(e).__name__})"
             )
+            try:
+                _persist_terminal(job_state.mark_all_failed, job_id, message)
+            except Exception as store_err:
+                print(f"[ERROR] Could not store dispatch failure for {job_id}: {store_err}")
+            seqs = req_dict.get("sequencesToDomesticate", req_dict.get("sequences_to_domesticate"))
+            for idx in range(len(seqs) if isinstance(seqs, list) else 0):
+                _publish_terminal(job_id, idx, job_state.FAILURE, message, error=message)
         raise
 
 
