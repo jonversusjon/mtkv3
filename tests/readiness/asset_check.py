@@ -26,26 +26,35 @@ _COMMENT = re.compile(rb"<!--.*?-->|/\*.*?\*/", re.S)
 _HTML_START = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]", re.I)
 
 
+_WS = re.compile(rb"\s*")
+
+
+def _url_path(url: str) -> str:
+    """URL path without query/fragment (those are not part of the extension)."""
+    return re.split(r"[?#]", url)[0]
+
+
 def _looks_like_html(body: bytes) -> bool:
     """True if the payload is an HTML document, even when prefixed by a BOM,
-    whitespace, or leading comments."""
-    head = body[:4096]
+    whitespace, or leading comments of any length."""
     for bom in (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff"):
-        if head.startswith(bom):
-            head = head[len(bom):]
-    head = head.replace(b"\x00", b"")  # UTF-16 payloads
-    prev = None
-    while prev != head:  # strip leading whitespace and comments repeatedly
-        prev = head
-        head = head.lstrip()
-        m = _COMMENT.match(head)
-        if m:
-            head = head[m.end():]
-    return bool(_HTML_START.match(head))
+        if body.startswith(bom):
+            body = body[len(bom):]
+            break
+    if b"\x00" in body[:64]:  # UTF-16 payloads
+        body = body.replace(b"\x00", b"")
+    pos = 0
+    while True:
+        pos = _WS.match(body, pos).end()
+        m = _COMMENT.match(body, pos)
+        if not m:
+            break
+        pos = m.end()
+    return bool(_HTML_START.match(body, pos))
 
 
 def _wanted_types(url: str) -> Tuple[str, ...]:
-    path = re.split(r"[?#]", url)[0].lower()
+    path = _url_path(url).lower()
     ext = path.rsplit(".", 1)[-1]
     return {
         "css": CSS_TYPES, "js": JS_TYPES, "mjs": JS_TYPES,
@@ -63,7 +72,7 @@ def referenced_assets(index_html: str) -> List[str]:
         url = m.group(1)
         if url.startswith(("http://", "https://", "//", "data:")):
             continue
-        if re.search(r"\.(js|mjs|css|ico|png|jpe?g|svg|webmanifest|json)(\?|#|$)", url):
+        if re.search(r"\.(js|mjs|css|ico|png|jpe?g|svg|webmanifest|json)(\?|#|$)", url, re.I):
             out.append(url)
     return out
 
@@ -73,7 +82,7 @@ def check_assets(fetch: Fetch, index_path: str = "/") -> List[str]:
     if status != 200 or "text/html" not in ctype:
         raise AssetCheckError(f"index {index_path}: status={status} type={ctype}")
     assets = referenced_assets(body.decode("utf-8", "replace"))
-    if not any(a.endswith((".js", ".mjs")) or ".js?" in a for a in assets):
+    if not any(_url_path(a).lower().endswith((".js", ".mjs")) for a in assets):
         raise AssetCheckError("index.html references no JavaScript bundle")
     for url in assets:
         status, ctype, data = fetch(url)

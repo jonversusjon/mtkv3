@@ -143,7 +143,10 @@ def test_asset_checker_rejects_html_content_type_for_javascript():
     b"\xef\xbb\xbf  <!-- a --> <!-- b -->\n<!DOCTYPE HTML>" + INDEX,
     b"/* x */<html><body></body></html>",
     "<!doctype html><html></html>".encode("utf-16"),
-], ids=["bom", "comment", "bom-comments-upper", "css-comment-html", "utf16"])
+    b"<!--" + b"x" * 4096 + b"--><!doctype html><html>SPA</html>",
+    b"\xef\xbb\xbf/*" + b"x" * 100000 + b"*/ <!--" + b"y" * 50000 + b"-->\n<html>SPA</html>",
+], ids=["bom", "comment", "bom-comments-upper", "css-comment-html", "utf16",
+        "long-comment-4096", "long-mixed-comments"])
 def test_asset_checker_rejects_obfuscated_html_served_as_javascript(payload):
     bad = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", payload)}
     with pytest.raises(ac.AssetCheckError, match="HTML document"):
@@ -154,6 +157,8 @@ def test_asset_checker_rejects_obfuscated_html_served_as_javascript(payload):
     b"\xef\xbb\xbfconsole.log(1)",
     b"/* <html> license */\nconsole.log('<!doctype html>')",
     b"const h = '<html>';",
+    b"/*" + b"x" * 100000 + b"*/\nconsole.log(1)",
+    b"/* " + b"<html> " * 20000 + b"*/\nconsole.log(1)",
 ])
 def test_asset_checker_accepts_valid_javascript_controls(payload):
     ok = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", payload)}
@@ -287,3 +292,32 @@ def test_worker_logging_hooks_keep_file_handlers_and_console_errors(tmp_path):
         assert "fatal VersionMismatch" in buf.getvalue() and "noise" not in buf.getvalue()
     finally:
         lg.removeHandler(fh); lg.removeHandler(ch); fh.close()
+
+
+@pytest.mark.parametrize("name", [
+    "a.js?v=1", "a.mjs?v=1", "a.js#bundle", "a.mjs#x", "a.js?v=1#x", "A.JS?v=2",
+])
+def test_asset_checker_accepts_js_with_query_or_fragment(name):
+    url = "/static/react/assets/" + name
+    index = INDEX.replace(b"/static/react/assets/a.js", url.encode())
+    table = {**GOOD, "/": (200, "text/html", index),
+             url: (200, "text/javascript", b"console.log(1)")}
+    assert url in ac.check_assets(_fetcher(table))
+
+
+@pytest.mark.parametrize("url", ["/static/react/assets/a.js?v=1", "/static/react/assets/a.mjs#b"])
+def test_asset_checker_still_fails_bad_js_with_query_or_fragment(url):
+    index = INDEX.replace(b"/static/react/assets/a.js", url.encode())
+    base = {**GOOD, "/": (200, "text/html", index)}
+    for bad in [(404, "application/json", b"{}"), (200, "text/javascript", INDEX),
+                (200, "text/html", b"console.log(1)"), (200, "text/plain", b"console.log(1)")]:
+        with pytest.raises(ac.AssetCheckError):
+            ac.check_assets(_fetcher({**base, url: bad}))
+
+
+def test_asset_checker_requires_a_javascript_bundle_even_with_query_only_css():
+    index = b'<!doctype html><link rel="stylesheet" href="/static/react/assets/a.css?v=1">'
+    table = {**GOOD, "/": (200, "text/html", index),
+             "/static/react/assets/a.css?v=1": (200, "text/css", b"a{}")}
+    with pytest.raises(ac.AssetCheckError, match="no JavaScript"):
+        ac.check_assets(_fetcher(table))
