@@ -1,0 +1,4 @@
+DEFECT REPRODUCED [A flask run has no discoverable app]: Error: Could not locate a Flask application. Use the 'flask --app' option, 'FLASK_APP' environment variable, or a 'wsgi.py' or 'app.py' file in the current directory.
+DEFECT REPRODUCED [B create_app without log dirs]: ValueError: Unable to configure handler 'celery_file'
+DEFECT REPRODUCED [C missing/unprefixed JS served as HTML]: /assets/index-g7F6kxeS.js -> 200 text/html; charset=utf-8 b'<!doctype html>'
+BASELINE 653b2f0: all 3 defects reproduced

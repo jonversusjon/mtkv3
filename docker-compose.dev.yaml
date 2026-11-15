@@ -7,7 +7,7 @@ services:
     volumes:
       - .:/app
       - ./flask_backend/log_utils/logs:/app/flask_backend/log_utils/logs
-    command: flask run --host=0.0.0.0 --reload
+    command: flask --app flask_backend.app:create_app run --host=0.0.0.0 --debug --reload
     environment:
       PYTHONPATH: /app
       FLASK_APP: flask_backend.app:create_app()
@@ -18,6 +18,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
     ports:
       - "5000:5000"
     depends_on:
@@ -47,7 +48,27 @@ services:
     depends_on:
       - redis
 
+  # Development entry point for the UI: Vite dev server with HMR, proxying
+  # /api and /sse to the backend service. Open http://localhost:3000.
+  frontend:
+    image: node:22-alpine
+    working_dir: /app/react-frontend
+    volumes:
+      - ./react-frontend:/app/react-frontend
+      - frontend_node_modules:/app/react-frontend/node_modules
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev"
+    environment:
+      VITE_HOST: 0.0.0.0
+      VITE_PROXY_TARGET: http://backend:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+
+volumes:
+  frontend_node_modules:

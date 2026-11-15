@@ -1,0 +1,15 @@
+=== suite: startup ===  (bash scripts/readiness/test-fast.sh startup, local, rc=0)
+18 passed in 4.56s
+ Test Files  5 passed (5)
+      Tests  13 passed (13)
+DEV SMOKE OK (flask + vite, species ['homo_sapiens', 'mus_musculus'])
+test-fast: all requested suites passed: startup
+Test isolation: destructive clean-start/bundle checks run on a temp sandbox copy of flask_backend
+(bundle built with `vite --outDir <sandbox>`); an autouse guard asserts the caller's logs/bundle are
+unchanged. Verified with sentinel files in the checkout's log_utils/logs and static/react across a
+passing run and a deliberately failing run: sentinels survived both.
+Optional MTKV3_LOG_DIR redirects log files; default paths unchanged.
+Baseline (pre-fix) defects: baseline.txt (original capture) and baseline_check.txt, produced by the
+safe, repeatable `check_baseline.sh 653b2f0 <python>` (git-archive export in a temp dir; never touches
+the caller's checkout; fails if a defect is not seen). The same script against HEAD reports defects B/C absent.
+Docker images were built successfully separately (Docker Desktop); not re-run here.

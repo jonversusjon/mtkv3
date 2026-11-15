@@ -1,0 +1,362 @@
+"""Startup regression tests: app discovery, clean start, species API, built bundle."""
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+
+import pytest
+import yaml
+
+import asset_check as ac
+from conftest import REPO
+
+
+# ---- application discovery / clean start -----------------------------------
+def test_flask_discovers_factory_explicitly(tmp_path):
+    env = {**os.environ, "PYTHONPATH": str(REPO), "FLASK_ENV": "development",
+           "MTKV3_LOG_DIR": str(tmp_path / "logs")}
+    env.pop("FLASK_APP", None)
+    out = subprocess.run(
+        [sys.executable, "-m", "flask", "--app", "flask_backend.app:create_app", "routes"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert "/api/species" in out.stdout
+
+
+def test_log_dir_override_redirects_logs_and_default_is_unchanged(tmp_path):
+    from flask_backend.logger import setup as lsetup
+    import logging
+    import yaml as _y
+    cfg = _y.safe_load((REPO / "flask_backend" / "logger" / "config.yaml").read_text())
+    defaults = {h["filename"] for h in cfg["handlers"].values() if h.get("filename")}
+    assert defaults == {"flask_backend/log_utils/logs/app.log", "flask_backend/log_utils/logs/celery.log"}
+    seen = {}
+    real = logging.config.dictConfig
+    logging.config.dictConfig = lambda c: seen.update(c["handlers"])
+    try:
+        os.environ["MTKV3_LOG_DIR"] = str(tmp_path / "ovr")
+        try:
+            lsetup.setup_logging()
+        finally:
+            del os.environ["MTKV3_LOG_DIR"]
+    finally:
+        logging.config.dictConfig = real
+    files = {pathlib.Path(h["filename"]) for h in seen.values() if h.get("filename")}
+    assert files == {tmp_path / "ovr" / "app.log", tmp_path / "ovr" / "celery.log"}
+    assert (tmp_path / "ovr").is_dir()
+
+
+def test_bare_flask_run_is_not_the_default_any_more():
+    """The container must not depend on implicit discovery (the baseline failure)."""
+    text = (REPO / "flask_backend" / "Dockerfile").read_text()
+    assert "FLASK_APP=flask_backend.app:create_app" in text
+    cmd = [l for l in text.splitlines() if l.startswith("CMD")][-1]
+    assert "--app" in cmd and "flask_backend.app:create_app" in cmd
+
+
+def test_create_app_starts_without_preexisting_log_dirs(sandbox):
+    assert not sandbox.log_dir.exists()  # clean checkout/container
+    sandbox.create_app()
+    assert sandbox.log_dir.is_dir()
+    assert (sandbox.log_dir / "app.log").exists()
+
+
+def test_sandbox_logs_are_run_owned_and_sentinels_survive(sandbox):
+    """Destructive clean-start checks act on the sandbox only; sentinels placed in
+    an unrelated directory (and the caller-state guard in conftest) must survive."""
+    sentinel = sandbox.root.parent / "caller_logs" / "app.log"
+    sentinel.parent.mkdir()
+    sentinel.write_text("keep-me")
+    sandbox.create_app()
+    assert sentinel.read_text() == "keep-me"
+    assert sandbox.log_dir.is_dir() and sandbox.log_dir != sentinel.parent
+
+
+# ---- species API -----------------------------------------------------------
+def test_species_endpoint_matches_codon_tables_on_disk(client):
+    tables = REPO / "flask_backend" / "static" / "data" / "codon_usage_tables"
+    expected = sorted(p.stem for p in tables.glob("*.json"))
+    assert expected, "no codon usage tables found"
+    r = client.get("/api/species")
+    assert r.status_code == 200
+    assert r.is_json
+    assert sorted(r.get_json()["species"]) == expected
+    assert {"homo_sapiens", "mus_musculus"} <= set(expected)
+
+
+def test_species_redirect_alias(client):
+    r = client.get("/species")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/api/species")
+
+
+def test_unknown_api_and_file_paths_return_json_404_not_html(client):
+    for path in ("/api/nope", "/assets/missing.js", "/missing.css", "/sse/nope"):
+        r = client.get(path)
+        assert r.status_code == 404, path
+        assert r.is_json, f"{path} returned {r.content_type}"
+
+
+# ---- asset checker must reject bad serving ---------------------------------
+INDEX = b'<!doctype html><script type="module" src="/static/react/assets/a.js"></script><link rel="stylesheet" href="/static/react/assets/a.css">'
+
+
+def _fetcher(table):
+    def fetch(path):
+        return table.get(path, (404, "application/json", b"{}"))
+    return fetch
+
+
+GOOD = {
+    "/": (200, "text/html; charset=utf-8", INDEX),
+    "/static/react/assets/a.js": (200, "text/javascript; charset=utf-8", b"console.log(1)"),
+    "/static/react/assets/a.css": (200, "text/css; charset=utf-8", b"a{}"),
+}
+
+
+def test_asset_checker_accepts_good_bundle():
+    assert len(ac.check_assets(_fetcher(GOOD))) == 2
+
+
+def test_asset_checker_rejects_missing_asset():
+    bad = {k: v for k, v in GOOD.items() if k != "/static/react/assets/a.js"}
+    with pytest.raises(ac.AssetCheckError, match="missing asset"):
+        ac.check_assets(_fetcher(bad))
+
+
+def test_asset_checker_rejects_html_masquerading_as_javascript():
+    # Status 200 AND a JS content-type, but the body is the SPA index page.
+    bad = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", INDEX)}
+    with pytest.raises(ac.AssetCheckError, match="HTML document"):
+        ac.check_assets(_fetcher(bad))
+
+
+def test_asset_checker_rejects_html_content_type_for_javascript():
+    bad = {**GOOD, "/static/react/assets/a.js": (200, "text/html", b"console.log(1)")}
+    with pytest.raises(ac.AssetCheckError, match="Content-Type"):
+        ac.check_assets(_fetcher(bad))
+
+
+@pytest.mark.parametrize("payload", [
+    b"\xef\xbb\xbf" + INDEX,
+    b"<!-- spa -->" + INDEX,
+    b"\xef\xbb\xbf  <!-- a --> <!-- b -->\n<!DOCTYPE HTML>" + INDEX,
+    b"/* x */<html><body></body></html>",
+    "<!doctype html><html></html>".encode("utf-16"),
+    b"<!--" + b"x" * 4096 + b"--><!doctype html><html>SPA</html>",
+    b"\xef\xbb\xbf/*" + b"x" * 100000 + b"*/ <!--" + b"y" * 50000 + b"-->\n<html>SPA</html>",
+], ids=["bom", "comment", "bom-comments-upper", "css-comment-html", "utf16",
+        "long-comment-4096", "long-mixed-comments"])
+def test_asset_checker_rejects_obfuscated_html_served_as_javascript(payload):
+    bad = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", payload)}
+    with pytest.raises(ac.AssetCheckError, match="HTML document"):
+        ac.check_assets(_fetcher(bad))
+
+
+@pytest.mark.parametrize("payload", [
+    b"\xef\xbb\xbfconsole.log(1)",
+    b"/* <html> license */\nconsole.log('<!doctype html>')",
+    b"const h = '<html>';",
+    b"/*" + b"x" * 100000 + b"*/\nconsole.log(1)",
+    b"/* " + b"<html> " * 20000 + b"*/\nconsole.log(1)",
+])
+def test_asset_checker_accepts_valid_javascript_controls(payload):
+    ok = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", payload)}
+    assert len(ac.check_assets(_fetcher(ok))) == 2
+
+
+def test_asset_checker_rejects_html_fragments_served_as_javascript():
+    for frag in (b'<title>SPA</title><div id="root"></div>', b"<div id=root></div>",
+                 b"\xef\xbb\xbf/* c */<div>SPA</div>"):
+        bad = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", frag)}
+        with pytest.raises(ac.AssetCheckError, match="HTML document"):
+            ac.check_assets(_fetcher(bad))
+
+
+def test_asset_checker_accepts_svg_asset_and_css_with_html_text():
+    svg_index = b'<!doctype html><script src="/a.js"></script><link rel="icon" href="/i.svg">'
+    for svg in (b'<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+                b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>',
+                b'<!-- c --><svg viewBox="0 0 1 1"></svg>'):
+        ok = {"/": (200, "text/html", svg_index), "/a.js": (200, "text/javascript", b"1"),
+              "/i.svg": (200, "image/svg+xml", svg)}
+        assert len(ac.check_assets(_fetcher(ok))) == 2
+    css = {**GOOD, "/static/react/assets/a.css": (200, "text/css", b'a::after{content:"<div>"}')}
+    assert len(ac.check_assets(_fetcher(css))) == 2
+
+
+@pytest.mark.parametrize("tags", [
+    b"<script src='/a.js'></script><script src=\"/b.js\"></script>",
+    b"<script src=/a.js></script><script src=\"/b.js\"></script>",
+    b"<script src = '/a.js' ></script><script SRC=\"/b.js\"></script>",
+    b"<script src='/a&#46;js'></script><script src=\"/b.js\"></script>",
+])
+def test_referenced_assets_parses_quote_styles_and_entities(tags):
+    assert ac.referenced_assets("<!doctype html>" + tags.decode()) == ["/a.js", "/b.js"]
+
+
+def test_asset_checker_detects_missing_single_quoted_secondary_asset():
+    index = b"<!doctype html><script src=\"/b.js\"></script><script src='/a.js'></script>"
+    table = {"/": (200, "text/html", index), "/b.js": (200, "text/javascript", b"1")}
+    with pytest.raises(ac.AssetCheckError, match="missing asset"):
+        ac.check_assets(_fetcher(table))
+    table["/a.js"] = (200, "text/javascript", b"2")
+    assert ac.check_assets(_fetcher(table)) == ["/b.js", "/a.js"]
+
+
+def test_asset_checker_accepts_valid_css_with_comments():
+    ok = {**GOOD, "/static/react/assets/a.css": (200, "text/css", b"/* c */a{color:red}")}
+    assert len(ac.check_assets(_fetcher(ok))) == 2
+
+
+ICON_INDEX = INDEX.replace(b"<script", b'<link rel="icon" href="/static/react/favicon.ico"><script', 1)
+ICON = "/static/react/favicon.ico"
+GOOD_ICON = {**GOOD, "/": (200, "text/html", ICON_INDEX),
+             ICON: (200, "image/x-icon", b"\x00\x00\x01\x00")}
+
+
+def test_asset_checker_covers_favicon_with_its_own_mime():
+    assert ICON in ac.check_assets(_fetcher(GOOD_ICON))
+
+
+def test_asset_checker_rejects_missing_html_or_wrong_type_favicon():
+    with pytest.raises(ac.AssetCheckError, match="missing asset"):
+        ac.check_assets(_fetcher({k: v for k, v in GOOD_ICON.items() if k != ICON}))
+    with pytest.raises(ac.AssetCheckError, match="HTML document"):
+        ac.check_assets(_fetcher({**GOOD_ICON, ICON: (200, "image/x-icon", INDEX)}))
+    with pytest.raises(ac.AssetCheckError, match="Content-Type"):
+        ac.check_assets(_fetcher({**GOOD_ICON, ICON: (200, "text/javascript", b"\x00\x00\x01\x00")}))
+
+
+# ---- built bundle served by the real Flask app ------------------------------
+@pytest.fixture
+def built_bundle(sandbox):
+    """Build the bundle with the project's own npm script into the sandbox
+    (vite --outDir); fail (never skip) if it can't.  Cleanup is the sandbox's
+    temp dir, so even a failing build/test leaves the caller's bundle alone."""
+    r = subprocess.run(
+        ["npm", "run", "build", "--", "--outDir", str(sandbox.bundle), "--emptyOutDir"],
+        cwd=REPO / "react-frontend", capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (sandbox.bundle / "index.html").is_file()
+    return sandbox.bundle
+
+
+def test_flask_serves_fresh_bundle_with_correct_assets(sandbox, built_bundle):
+    client = sandbox.create_app().test_client()
+    assets = ac.check_assets(ac.flask_fetch(client))
+    assert all(a.startswith("/static/react/") for a in assets)
+    assert any(a.endswith(".ico") for a in assets), "favicon not covered"
+    # client-side route falls back to index.html
+    r = client.get("/results")
+    assert r.status_code == 200 and "text/html" in r.content_type
+
+
+def test_flask_rejects_removed_asset_from_built_bundle(sandbox, built_bundle):
+    client = sandbox.create_app().test_client()
+    js = next(p for p in (built_bundle / "assets").glob("*.js"))
+    js.unlink()
+    with pytest.raises(ac.AssetCheckError, match="missing asset"):
+        ac.check_assets(ac.flask_fetch(client))
+
+
+# ---- compose / image static checks (docker daemon not needed) ---------------
+def _compose(name):
+    return yaml.safe_load((REPO / name).read_text())
+
+
+def test_default_compose_has_no_bind_mount_hiding_the_bundle():
+    c = _compose("docker-compose.yaml")
+    for name in ("backend", "worker"):
+        svc = c["services"][name]
+        assert svc["build"]["dockerfile"] == "flask_backend/Dockerfile"
+        for v in svc.get("volumes", []):
+            assert not str(v).startswith((".:", "./:")), f"{name} bind-mounts the repo over /app"
+    cmd = c["services"]["backend"]["command"]
+    assert "flask_backend.app:create_app" in " ".join(cmd)
+
+
+def test_dockerfile_builds_bundle_in_image():
+    text = (REPO / "flask_backend" / "Dockerfile").read_text()
+    assert "npm ci" in text and "npm run build" in text
+    assert "COPY --from=frontend" in text and "flask_backend/static/react" in text
+
+
+def test_dockerignore_excludes_stale_artifacts_and_has_no_inline_comments():
+    lines = [l for l in (REPO / ".dockerignore").read_text().splitlines() if l and not l.startswith("#")]
+    assert "node_modules/" in lines and "flask_backend/static/react/" in lines
+    assert not any("#" in l for l in lines), "inline comments are treated as part of the pattern"
+
+
+def test_dev_compose_is_a_separate_entry_point_with_explicit_app():
+    c = _compose("docker-compose.dev.yaml")
+    assert "flask_backend.app:create_app" in c["services"]["backend"]["command"]
+    assert "frontend" in c["services"]
+
+
+# ---- celery worker transport + logging visibility ---------------------------
+def test_kombu_pinned_and_compatible_with_pinned_redis_py():
+    reqs = (REPO / "flask_backend" / "requirements.txt").read_text()
+    assert "kombu==5.5.4" in reqs and "redis==5.2.1" in reqs and "celery==5.4.0" in reqs
+
+
+def test_redis_transport_client_class_selected_without_version_mismatch():
+    """kombu's own redis-py compatibility check (where VersionMismatch was raised)
+    runs against the installed redis-py; the real broker ping is done in the Docker
+    evidence run (see tests/readiness/evidence/worker_ping.txt)."""
+    from kombu.transport.redis import Channel
+    client_cls = Channel.__new__(Channel)._get_client()
+    import redis
+    assert client_cls is redis.Redis
+
+
+def test_worker_logging_hooks_keep_file_handlers_and_console_errors(tmp_path):
+    import logging
+    from flask_backend.logger.console import quiet_console as _quiet_console
+    lg = logging.getLogger("readiness.hook")
+    lg.handlers = []
+    lg.propagate = False
+    lg.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(tmp_path / "w.log")
+    ch = logging.StreamHandler()
+    lg.addHandler(fh); lg.addHandler(ch)
+    try:
+        _quiet_console(lg)
+        assert fh in lg.handlers and ch in lg.handlers
+        assert fh.level == logging.NOTSET
+        assert ch.level == logging.WARNING  # fatal startup errors still reach console
+        import io
+        buf = io.StringIO(); ch.setStream(buf)
+        lg.info("noise"); lg.critical("fatal VersionMismatch")
+        assert "fatal VersionMismatch" in buf.getvalue() and "noise" not in buf.getvalue()
+    finally:
+        lg.removeHandler(fh); lg.removeHandler(ch); fh.close()
+
+
+@pytest.mark.parametrize("name", [
+    "a.js?v=1", "a.mjs?v=1", "a.js#bundle", "a.mjs#x", "a.js?v=1#x", "A.JS?v=2",
+])
+def test_asset_checker_accepts_js_with_query_or_fragment(name):
+    url = "/static/react/assets/" + name
+    index = INDEX.replace(b"/static/react/assets/a.js", url.encode())
+    table = {**GOOD, "/": (200, "text/html", index),
+             url: (200, "text/javascript", b"console.log(1)")}
+    assert url in ac.check_assets(_fetcher(table))
+
+
+@pytest.mark.parametrize("url", ["/static/react/assets/a.js?v=1", "/static/react/assets/a.mjs#b"])
+def test_asset_checker_still_fails_bad_js_with_query_or_fragment(url):
+    index = INDEX.replace(b"/static/react/assets/a.js", url.encode())
+    base = {**GOOD, "/": (200, "text/html", index)}
+    for bad in [(404, "application/json", b"{}"), (200, "text/javascript", INDEX),
+                (200, "text/html", b"console.log(1)"), (200, "text/plain", b"console.log(1)")]:
+        with pytest.raises(ac.AssetCheckError):
+            ac.check_assets(_fetcher({**base, url: bad}))
+
+
+def test_asset_checker_requires_a_javascript_bundle_even_with_query_only_css():
+    index = b'<!doctype html><link rel="stylesheet" href="/static/react/assets/a.css?v=1">'
+    table = {**GOOD, "/": (200, "text/html", index),
+             "/static/react/assets/a.css?v=1": (200, "text/css", b"a{}")}
+    with pytest.raises(ac.AssetCheckError, match="no JavaScript"):
+        ac.check_assets(_fetcher(table))
