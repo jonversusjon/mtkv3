@@ -45,6 +45,19 @@ describe("useJobStatus", () => {
     expect(fetchMock.mock.calls.length).toBe(calls); // bounded: no more polling
   });
 
+  it("reaches a bounded timeout even when a request stalls after headers", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => new Promise(() => {}) })));
+    const { result, unmount } = renderHook(() => useJobStatus("A", { intervalMs: 100, timeoutMs: 450 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(result.current.state).toBe("timeout");
+    unmount();
+    // the abandoned request's own 30s limit still fires and is ignored; nothing lingers after it
+    await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(result.current.state).toBe("timeout");
+  });
+
   it("a status that belongs to a different job never satisfies completion", async () => {
     vi.stubGlobal("fetch", vi.fn(() => reply(job("STALE-A", "success", [{ sequenceIdx: 0, state: "success" }]))));
     const { result } = renderHook(() => useJobStatus("B", { intervalMs: 10 }));

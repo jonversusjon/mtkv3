@@ -114,6 +114,29 @@ def test_success_is_recorded_per_sequence_and_matches_expectations(lifecycle):
     assert {k: sorted(v) for k, v in got.items()} == exp["synonymous_alternatives_by_amino_acid"]
 
 
+def test_real_worker_return_is_serializable_by_the_celery_result_serializer(lifecycle, monkeypatch):
+    """The fake Redis tolerates default=str; the real Celery JSON result serializer does not
+    get that leniency, so the real worker return must serialize on its own."""
+    from kombu.serialization import dumps, loads
+
+    outputs = []
+    real = lifecycle.tasks._run_sequence
+
+    def spy(req_dict, index):
+        out = real(req_dict, index)
+        outputs.append(out)
+        return out
+
+    monkeypatch.setattr(lifecycle.tasks, "_run_sequence", spy)
+    resp, data = submit(lifecycle, payload())
+    assert resp.status_code == 202
+    assert job(lifecycle, data["job_id"])["state"] == "success"
+    (out,) = outputs
+    json.dumps(out, allow_nan=False)  # strict: no default=str, no NaN/Infinity
+    content_type, encoding, wire = dumps(out, serializer="json")  # what Celery would store
+    assert loads(wire, content_type, encoding, accept=["application/json"]) == json.loads(json.dumps(out))
+
+
 def test_parent_success_only_means_dispatched_not_finished(lifecycle, monkeypatch):
     """The parent task reports SUCCESS ('started') even when the sequence work failed."""
 

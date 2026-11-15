@@ -24,8 +24,18 @@ const useJobStatus = (
     if (!jobId) return undefined;
     let cancelled = false;
     let timer = null;
+    let finished = false; // a terminal state was reached: the deadline must not overwrite it
     startedAt.current = Date.now();
     setStatus({ state: "pending", sequences: [], error: null });
+
+    // Overall deadline, independent of any single request: a stalled request
+    // cannot push the terminal "timeout" state past the wait budget.
+    const deadline = setTimeout(() => {
+      if (cancelled || finished) return;
+      cancelled = true; // ignore any late result from the stalled request
+      if (timer) clearTimeout(timer);
+      setStatus((prev) => ({ ...prev, state: "timeout" }));
+    }, timeoutMs);
 
     const tick = async () => {
       try {
@@ -33,14 +43,19 @@ const useJobStatus = (
         if (cancelled) return;
         // Identity check: never accept a status that belongs to another submission.
         if (job.jobId !== jobId) {
+          finished = true;
           setStatus({ state: "failure", sequences: [], error: "Received a status for a different job." });
           return;
         }
         setStatus({ state: job.state, sequences: job.sequences || [], error: null });
-        if (TERMINAL.includes(job.state)) return;
+        if (TERMINAL.includes(job.state)) {
+          finished = true;
+          return;
+        }
       } catch (err) {
         if (cancelled) return;
         if (/unknown job/i.test(err.message)) {
+          finished = true;
           setStatus({ state: "failure", sequences: [], error: "This job no longer exists on the server. Please resubmit." });
           return;
         }
@@ -57,6 +72,7 @@ const useJobStatus = (
     tick();
     return () => {
       cancelled = true;
+      clearTimeout(deadline);
       if (timer) clearTimeout(timer);
     };
   }, [jobId, intervalMs, timeoutMs, attempt]);

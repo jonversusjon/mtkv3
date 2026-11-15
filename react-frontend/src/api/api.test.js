@@ -50,6 +50,41 @@ describe("submitProtocol", () => {
     await assertion;
   });
 
+  it("times out when headers arrive but the body stalls until aborted", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_u, { signal }) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => new Promise((_res, rej) =>
+          signal.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })))),
+      })));
+    const assertion = expect(submitProtocol({})).rejects.toThrow(/did not respond within 30 seconds/);
+    await vi.advanceTimersByTimeAsync(30001);
+    await assertion;
+  });
+
+  it("still times out if the body read ignores the abort signal", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => new Promise(() => {}) })));
+    const assertion = expect(getJob("j")).rejects.toThrow(/did not respond within 30 seconds/);
+    await vi.advanceTimersByTimeAsync(30001);
+    await assertion;
+  });
+
+  it("does not time out a normal JSON reply, and leaves no pending timer", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => reply({ job_id: "srv-1", task_id: "t" }, 202)));
+    await expect(submitProtocol({})).resolves.toEqual({ jobId: "srv-1", taskId: "t" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reports malformed JSON as an HTTP error, not a timeout", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({
+      ok: true, status: 200, json: () => Promise.reject(new SyntaxError("Unexpected token <")) })));
+    await expect(submitProtocol({})).rejects.toThrow(/did not return a job id/);
+  });
+
   it("rejects a 2xx response that carries no job id", async () => {
     vi.stubGlobal("fetch", vi.fn(() => reply({}, 202)));
     await expect(submitProtocol({})).rejects.toThrow(/did not return a job id/);

@@ -4,29 +4,46 @@ import axios from "axios";
 // Bounded waits: no browser request may hang forever.
 export const REQUEST_TIMEOUT_MS = 30000;
 
+// The timer covers the whole exchange -- connection, headers AND the JSON body --
+// so a server that sends headers and then stalls cannot hang the caller.
 const fetchJson = async (url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response;
+  const timeoutError = () =>
+    new Error(
+      `The server did not respond within ${Math.round(timeoutMs / 1000)} seconds. Please try again.`
+    );
   try {
-    response = await fetch(url, { ...options, signal: controller.signal });
-  } catch (err) {
-    if (err?.name === "AbortError") {
-      throw new Error(
-        `The server did not respond within ${Math.round(timeoutMs / 1000)} seconds. Please try again.`
-      );
+    let response;
+    try {
+      response = await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+      if (err?.name === "AbortError") throw timeoutError();
+      throw new Error("Could not reach the server. Check your connection and try again.");
     }
-    throw new Error("Could not reach the server. Check your connection and try again.");
+    let body = null;
+    try {
+      // A stalled body rejects with AbortError when the signal fires; some
+      // implementations ignore the signal for body reads, so also race it.
+      body = await Promise.race([
+        response.json(),
+        new Promise((_, reject) =>
+          controller.signal.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            { once: true }
+          )
+        ),
+      ]);
+    } catch (err) {
+      // An aborted body is a timeout, never a successful empty response.
+      if (err?.name === "AbortError") throw timeoutError();
+      // otherwise a non-JSON body (e.g. a proxy error page) -- handled by callers
+    }
+    return { response, body };
   } finally {
     clearTimeout(timer);
   }
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    // non-JSON body (e.g. a proxy error page) -- handled below
-  }
-  return { response, body };
 };
 
 /**
