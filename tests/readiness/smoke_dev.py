@@ -4,7 +4,9 @@ Starts the Flask dev server (explicit --app factory, dev config) and the Vite
 dev server (HMR, proxy to Flask) on free ports, then verifies:
   * Flask /api/species answers JSON,
   * Vite serves index.html and /src/main.jsx as JavaScript (not HTML),
-  * Vite's /api proxy reaches Flask and returns the same species list.
+  * the API/SSE base URLs the real client config resolves to in development
+    (react-frontend/src/config/config.js, VITE_API_URL/VITE_SSE_URL unset) go
+    through the Vite proxy to THIS run's Flask port (never a hardcoded 5000).
 Exits non-zero (never skips) on any failure.
 """
 import json
@@ -40,6 +42,23 @@ def wait_for(url, proc, timeout=90):
             pass
         time.sleep(0.5)
     raise SystemExit(f"timed out waiting for {url}")
+
+
+def resolve_client_urls():
+    """Evaluate the real client config module in dev mode; return (api, sse)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("VITE_API", "VITE_SSE"))}
+    r = subprocess.run(
+        ["node", str(REPO / "tests" / "readiness" / "resolve_client_urls.mjs")],
+        cwd=REPO / "react-frontend", env=env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    return out["api"], out["sse"]
+
+
+def browser_url(base, vite_url, path):
+    """Where a browser on the Vite page would send `base + path`."""
+    full = base + path
+    return full if full.startswith(("http://", "https://")) else vite_url + full
 
 
 def main():
@@ -79,8 +98,17 @@ def main():
             assert r.status_code == 200 and "javascript" in ctype, f"main.jsx: {r.status_code} {ctype}"
             assert not r.text.lstrip().lower().startswith("<!doctype"), "main.jsx returned HTML"
 
-            r = requests.get(vite_url + "/api/species", timeout=10)
-            assert r.status_code == 200 and r.json()["species"] == species, "vite proxy to flask"
+            api_base, sse_base = resolve_client_urls()
+            api_url = browser_url(api_base, vite_url, "/species")
+            assert api_url.startswith(vite_url), f"client API bypasses the vite proxy: {api_url}"
+            r = requests.get(api_url, timeout=10)
+            assert r.status_code == 200 and r.json()["species"] == species, \
+                f"client API {api_url}: {r.status_code} {r.text[:100]}"
+            sse_url = browser_url(sse_base, vite_url, "/nope")
+            assert sse_url.startswith(vite_url), f"client SSE bypasses the vite proxy: {sse_url}"
+            r = requests.get(sse_url, timeout=10)  # flask answers JSON 404 for unknown sse routes
+            assert r.status_code == 404 and r.json().get("error") == "Resource not found", \
+                f"client SSE {sse_url} did not reach flask: {r.status_code} {r.text[:100]}"
             print("DEV SMOKE OK: flask", flask_url, "vite", vite_url, "species", species)
         except (AssertionError, SystemExit) as e:
             for name in ("flask", "vite"):

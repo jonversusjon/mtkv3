@@ -22,9 +22,39 @@ class AssetCheckError(AssertionError):
     pass
 
 
+_COMMENT = re.compile(rb"<!--.*?-->|/\*.*?\*/", re.S)
+_HTML_START = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]", re.I)
+
+
 def _looks_like_html(body: bytes) -> bool:
-    head = body[:512].lstrip().lower()
-    return head.startswith(b"<!doctype html") or head.startswith(b"<html")
+    """True if the payload is an HTML document, even when prefixed by a BOM,
+    whitespace, or leading comments."""
+    head = body[:4096]
+    for bom in (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff"):
+        if head.startswith(bom):
+            head = head[len(bom):]
+    head = head.replace(b"\x00", b"")  # UTF-16 payloads
+    prev = None
+    while prev != head:  # strip leading whitespace and comments repeatedly
+        prev = head
+        head = head.lstrip()
+        m = _COMMENT.match(head)
+        if m:
+            head = head[m.end():]
+    return bool(_HTML_START.match(head))
+
+
+def _wanted_types(url: str) -> Tuple[str, ...]:
+    path = re.split(r"[?#]", url)[0].lower()
+    ext = path.rsplit(".", 1)[-1]
+    return {
+        "css": CSS_TYPES, "js": JS_TYPES, "mjs": JS_TYPES,
+        "ico": ("image/x-icon", "image/vnd.microsoft.icon"),
+        "png": ("image/png",), "jpg": ("image/jpeg",), "jpeg": ("image/jpeg",),
+        "svg": ("image/svg+xml",),
+        "json": ("application/json", "application/manifest+json"),
+        "webmanifest": ("application/manifest+json", "application/json"),
+    }[ext]
 
 
 def referenced_assets(index_html: str) -> List[str]:
@@ -33,7 +63,7 @@ def referenced_assets(index_html: str) -> List[str]:
         url = m.group(1)
         if url.startswith(("http://", "https://", "//", "data:")):
             continue
-        if re.search(r"\.(js|mjs|css)(\?|$)", url):
+        if re.search(r"\.(js|mjs|css|ico|png|jpe?g|svg|webmanifest|json)(\?|#|$)", url):
             out.append(url)
     return out
 
@@ -52,7 +82,7 @@ def check_assets(fetch: Fetch, index_path: str = "/") -> List[str]:
         if _looks_like_html(data):
             raise AssetCheckError(f"{url}: HTML document returned for an asset ({ctype})")
         mime = ctype.split(";")[0].strip().lower()
-        wanted = CSS_TYPES if url.split("?")[0].endswith(".css") else JS_TYPES
+        wanted = _wanted_types(url)
         if mime not in wanted:
             raise AssetCheckError(f"{url}: unexpected Content-Type {ctype!r}, want {wanted}")
         if not data:

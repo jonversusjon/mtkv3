@@ -137,6 +137,53 @@ def test_asset_checker_rejects_html_content_type_for_javascript():
         ac.check_assets(_fetcher(bad))
 
 
+@pytest.mark.parametrize("payload", [
+    b"\xef\xbb\xbf" + INDEX,
+    b"<!-- spa -->" + INDEX,
+    b"\xef\xbb\xbf  <!-- a --> <!-- b -->\n<!DOCTYPE HTML>" + INDEX,
+    b"/* x */<html><body></body></html>",
+    "<!doctype html><html></html>".encode("utf-16"),
+], ids=["bom", "comment", "bom-comments-upper", "css-comment-html", "utf16"])
+def test_asset_checker_rejects_obfuscated_html_served_as_javascript(payload):
+    bad = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", payload)}
+    with pytest.raises(ac.AssetCheckError, match="HTML document"):
+        ac.check_assets(_fetcher(bad))
+
+
+@pytest.mark.parametrize("payload", [
+    b"\xef\xbb\xbfconsole.log(1)",
+    b"/* <html> license */\nconsole.log('<!doctype html>')",
+    b"const h = '<html>';",
+])
+def test_asset_checker_accepts_valid_javascript_controls(payload):
+    ok = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", payload)}
+    assert len(ac.check_assets(_fetcher(ok))) == 2
+
+
+def test_asset_checker_accepts_valid_css_with_comments():
+    ok = {**GOOD, "/static/react/assets/a.css": (200, "text/css", b"/* c */a{color:red}")}
+    assert len(ac.check_assets(_fetcher(ok))) == 2
+
+
+ICON_INDEX = INDEX.replace(b"<script", b'<link rel="icon" href="/static/react/favicon.ico"><script', 1)
+ICON = "/static/react/favicon.ico"
+GOOD_ICON = {**GOOD, "/": (200, "text/html", ICON_INDEX),
+             ICON: (200, "image/x-icon", b"\x00\x00\x01\x00")}
+
+
+def test_asset_checker_covers_favicon_with_its_own_mime():
+    assert ICON in ac.check_assets(_fetcher(GOOD_ICON))
+
+
+def test_asset_checker_rejects_missing_html_or_wrong_type_favicon():
+    with pytest.raises(ac.AssetCheckError, match="missing asset"):
+        ac.check_assets(_fetcher({k: v for k, v in GOOD_ICON.items() if k != ICON}))
+    with pytest.raises(ac.AssetCheckError, match="HTML document"):
+        ac.check_assets(_fetcher({**GOOD_ICON, ICON: (200, "image/x-icon", INDEX)}))
+    with pytest.raises(ac.AssetCheckError, match="Content-Type"):
+        ac.check_assets(_fetcher({**GOOD_ICON, ICON: (200, "text/javascript", b"\x00\x00\x01\x00")}))
+
+
 # ---- built bundle served by the real Flask app ------------------------------
 @pytest.fixture
 def built_bundle(sandbox):
@@ -154,7 +201,8 @@ def built_bundle(sandbox):
 def test_flask_serves_fresh_bundle_with_correct_assets(sandbox, built_bundle):
     client = sandbox.create_app().test_client()
     assets = ac.check_assets(ac.flask_fetch(client))
-    assert all(a.startswith("/static/react/assets/") for a in assets)
+    assert all(a.startswith("/static/react/") for a in assets)
+    assert any(a.endswith(".ico") for a in assets), "favicon not covered"
     # client-side route falls back to index.html
     r = client.get("/results")
     assert r.status_code == 200 and "text/html" in r.content_type
