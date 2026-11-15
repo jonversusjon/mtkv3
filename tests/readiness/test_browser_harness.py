@@ -114,13 +114,22 @@ def test_info_rows_do_not_count_as_passes_or_opens(tmp_path):
     assert res["counts"]["pass"] == 2 and rc == 0
 
 
-def test_canonical_limit_1_fixture_is_required_and_recorded_open_by_the_spec():
-    """Owner decision pending (form sends maxMutationsPerSite; backend reads maxMutPerSite, default 3):
-    the canonical limit-1 browser run is not decidable, so it must stay OPEN, never silently PASS."""
-    assert "fixture.canonical-limit-1-run" in REQUIRED.read_text()
+def test_canonical_limit_1_fixture_is_required_and_guarded_by_real_observations():
+    """The form's 1/2/3 selection is honored, so the canonical limit-1 run can PASS -- but only through
+    check() calls that depend on observed values, never a hardcoded PASS/OPEN record."""
+    req = REQUIRED.read_text()
+    for cid in ("fixture.canonical-limit-1-run", "setting.max-mutations-request", "worker.persisted-limit"):
+        assert cid in req
     spec = (REPO / "tests/readiness/browser/acceptance.spec.mjs").read_text()
-    assert 'record("fixture.canonical-limit-1-run", "OPEN"' in spec
-    assert 'maxMutPerSite' in spec and "page.route(" not in spec
+    assert "page.route(" not in spec
+    assert 'record("fixture.canonical-limit-1-run"' not in spec and "legacy" not in spec
+    # real selection through the settings selector, then the observed request and worker-persisted limit
+    assert 'locator("#mutations-select").selectOption("1")' in spec
+    assert 'check("setting.max-mutations-request", sent.maxMutPerSite === fx.settings.maxMutPerSite' in spec
+    assert 'check("worker.persisted-limit", persistedLimit === 1' in spec
+    m = re.search(r'check\("fixture\.canonical-limit-1-run",\s*([^\n]*)', spec)
+    assert m and "S.canonicalLimitObserved === true" in m.group(1) and "byAa" in m.group(1)
+    assert "S.canonicalLimitObserved = sent.maxMutPerSite === 1 && persistedLimit === 1" in spec
 
 
 # ---- regressions for the confirmed false-PASS cases (browser-verdict-probe: PASS/INFO/SKIP all -> PASS) ----

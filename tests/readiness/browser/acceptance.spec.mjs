@@ -5,7 +5,7 @@
 //   PASS  the observation was made and matched
 //   FAIL  the observation was made and did not match (the Playwright test also fails)
 //   INFO  characterisation only (not an acceptance claim)
-//   OPEN  the check cannot be decided yet (owner decision pending); never counted as a pass
+//   OPEN  the check cannot be decided yet; never counted as a pass
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -153,7 +153,6 @@ test("03 backend species populate the form's species list", async () => {
   check("species.form-options", JSON.stringify(options) === JSON.stringify(fromApi), `form options ${JSON.stringify(options)} == API ${JSON.stringify(fromApi)}`);
   S.speciesSelected = await page.locator("#species-select").inputValue();
   await shot("03-settings-species.png");
-  // characterise the effective max-mutations setting WITHOUT changing it (owner decision pending)
   S.maxMutSelectShows = await page.locator("#mutations-select").inputValue();
   await page.getByRole("button", { name: "Close settings" }).first().click().catch(() => page.keyboard.press("Escape"));
 });
@@ -193,6 +192,13 @@ test("05 submit the named fixture via the form; correlate with expectations.json
   // the template sequence is the fixture's, to match dev_config_2
   const tmpl = seqOf("TEST_TEMPLATE_SEQ");
   await page.locator("#templateSequence").fill(tmpl);
+  // The named fixture runs with limit 1.  Choose it through the real settings selector like a user
+  // (via 2 first so the selection is a genuine change event), then close the panel.
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.locator("#mutations-select").selectOption("2");
+  await page.locator("#mutations-select").selectOption("1");
+  await expect(page.locator("#mutations-select")).toHaveValue("1");
+  await page.getByRole("button", { name: "Close settings" }).first().click().catch(() => page.keyboard.press("Escape"));
   await shot("05a-form-filled.png");
   const submit = page.getByRole("button", { name: "Generate Protocol" });
   await expect(submit).toBeEnabled();
@@ -238,19 +244,23 @@ test("05 submit the named fixture via the form; correlate with expectations.json
   check("submit.primerName", s0.primerName === fx.primerName, `primerName ${s0.primerName}`);
   check("submit.species", sent.species === fx.settings.species, `species ${sent.species}`);
   check("submit.kozak", sent.kozak === fx.settings.kozak, `kozak ${sent.kozak}`);
-  // OWNER DECISION PENDING: record the effective limit honestly; do not alter or fake it.
-  S.sentMax = sent.maxMutationsPerSite; S.sentMaxAlias = sent.maxMutPerSite;
-  record("setting.max-mutations-effective", "INFO",
-    `form sent maxMutationsPerSite=${JSON.stringify(sent.maxMutationsPerSite)} and maxMutPerSite=${JSON.stringify(sent.maxMutPerSite)} (the prefill-driven 'one' is only present when /api/dummy supplies it; this stack's /api/dummy returned no prefill); ` +
-    `the backend reads only maxMutPerSite and defaults it to 3, so the effective limit is 3 (legacy), NOT the canonical 1 used in expectations.json. ` +
-    `Characterisation only: no mapping was implemented or faked.`);
-  record("fixture.canonical-limit-1-run", "OPEN",
-    "OWNER DECISION PENDING (map one/two/three to backend limits, or keep legacy 3). The browser cannot currently run the canonical maxMutPerSite=1 fixture without changing the form behaviour or rewriting its request, both prohibited. " +
-    "Checks that depend on limit 1 are recorded OPEN, not PASS; the restriction-site and processed-sequence checks below do not depend on the limit.");
+  // The selected limit as the real browser request carried it (no rewriting or interception).
+  S.sentMax = sent.maxMutPerSite;
+  check("setting.max-mutations-request", sent.maxMutPerSite === fx.settings.maxMutPerSite && sent.maxMutPerSite === 1,
+    `form selection 1 -> POST body maxMutPerSite=${JSON.stringify(sent.maxMutPerSite)} (expectations.json maxMutPerSite=${fx.settings.maxMutPerSite})`);
 
   await expect(page).toHaveURL(/\/results$/);
   await expect(page.getByTestId("sequence-status-success")).toBeVisible({ timeout: TERMINAL_BOUND_MS });
   await shot("05b-results-success.png");
+  // the parsed request the real worker persisted in THIS run's Redis carries the same limit
+  const redisCliP = JSON.parse(process.env.MTK_REDIS_CLI_JSON || "null");
+  if (!redisCliP) throw new Error("MTK_REDIS_CLI_JSON is required to read the worker-persisted request");
+  const persistedRaw = execFileSync(redisCliP[0], [...redisCliP.slice(1), "GET", `req:${S.jobId}:0`], { encoding: "utf8", timeout: 30_000 }).trim();
+  const persisted = JSON.parse(persistedRaw);
+  const persistedLimit = persisted.max_mut_per_site ?? persisted.maxMutPerSite;
+  fs.writeFileSync(path.join(OUT, "worker-persisted-request.json"), JSON.stringify({ key: `req:${S.jobId}:0`, max_mut_per_site: persistedLimit }, null, 1));
+  check("worker.persisted-limit", persistedLimit === 1, `run-owned Redis req:${S.jobId}:0 max_mut_per_site=${JSON.stringify(persistedLimit)} (worker-parsed request)`);
+  S.canonicalLimitObserved = sent.maxMutPerSite === 1 && persistedLimit === 1;
   check("pending.then-success", S.jobId === pendingJob.jobId, `the job observed pending (${pendingJob.jobId}) is the same job that then reached success (${S.jobId})`);
   const stored = await page.evaluate(() => sessionStorage.getItem("jobId"));
   check("results.job-identity", stored === S.jobId, `page jobId=${stored} == submitted job_id=${S.jobId}`);
@@ -274,7 +284,7 @@ test("05 submit the named fixture via the form; correlate with expectations.json
   fs.writeFileSync(path.join(OUT, "job-result.json"), JSON.stringify(job, null, 1));
 });
 
-test("06 synonymous alternatives shown for the site vs expectations.json (observed under effective limit 3)", async () => {
+test("06 synonymous alternatives shown for the site vs expectations.json (limit 1 run)", async () => {
   // Characterise what the browser actually offers under the effective limit.
   await page.getByText("Mutation Analysis").first().click();
   await expect(page.locator("h5:has-text('Alternative codons')").first()).toBeVisible({ timeout: 30_000 });
@@ -282,13 +292,14 @@ test("06 synonymous alternatives shown for the site vs expectations.json (observ
   const codons = await page.locator("h5:has-text('Alternative codons') + div").evaluateAll(
     (els) => els.map((e) => [...e.querySelectorAll("span.font-mono")].map((s) => s.textContent.trim())));
   const headingsAndOptions = picks.map((h, i) => [h, codons[i]]);
-  fs.writeFileSync(path.join(OUT, "observed-codon-options.json"), JSON.stringify({ headings: picks, options: codons, effectiveLimit: "legacy 3 (form sends maxMutationsPerSite; backend reads only maxMutPerSite, default 3)" }, null, 1));
+  fs.writeFileSync(path.join(OUT, "observed-codon-options.json"), JSON.stringify({ headings: picks, options: codons, effectiveLimit: 1 }, null, 1));
   const byAa = {};
   headingsAndOptions.forEach(([h, opts]) => { byAa[h.match(/aa: (\w)/)[1]] = [...opts].sort(); });
   const wantAa = Object.fromEntries(Object.entries(EXP.synonymous_alternatives_by_amino_acid).map(([k, v]) => [k, [...v].sort()]));
-  check("fixture.synonymous-alternatives-observed-under-limit-3", JSON.stringify(byAa) === JSON.stringify(wantAa),
-    `observed ${JSON.stringify(byAa)} == expectations.json ${JSON.stringify(wantAa)}. NOTE: observed under the form's effective legacy limit 3, ` +
-    `so this is NOT the canonical limit-1 fixture run (that stays OPEN: fixture.canonical-limit-1-run).`);
+  check("fixture.synonymous-alternatives-limit-1", JSON.stringify(byAa) === JSON.stringify(wantAa),
+    `observed ${JSON.stringify(byAa)} == expectations.json ${JSON.stringify(wantAa)} (limit 1 run)`);
+  check("fixture.canonical-limit-1-run", S.canonicalLimitObserved === true && JSON.stringify(byAa) === JSON.stringify(wantAa),
+    `PASS only after observing: form selection 1, POST maxMutPerSite=${JSON.stringify(S.sentMax)}, worker-persisted limit 1, and displayed synonymous alternatives equal expectations.json`);
 });
 
 test("07 user-selected primer action on the first sequence and its consumed result", async () => {

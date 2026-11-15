@@ -50,11 +50,33 @@ const fetchJson = async (url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) => {
  * job id; that id (not a client-made one) identifies every later lookup.
  * Resolves { jobId, taskId } or throws an Error with a user-readable message.
  */
+const WORD_LIMITS = { one: 1, two: 2, three: 3 };
+
+/**
+ * Build the request body. The form's "Max mutations/site" selection
+ * (maxMutationsPerSite) is the user's current choice and is sent as the
+ * backend's canonical field maxMutPerSite, overriding any stale canonical
+ * value. With no form selection, a direct maxMutPerSite passes through, and
+ * when both are absent the backend default applies. The caller's object is
+ * not mutated.
+ */
+export const buildProtocolPayload = (formData) => {
+  const { maxMutationsPerSite, ...rest } = formData || {};
+  const raw = typeof maxMutationsPerSite === "string"
+    ? (WORD_LIMITS[maxMutationsPerSite.trim().toLowerCase()] ?? maxMutationsPerSite)
+    : maxMutationsPerSite;
+  const limit = raw === null || raw === undefined || raw === "" ? NaN : Number(raw);
+  if (Number.isInteger(limit) && limit >= 1) {
+    return { ...rest, maxMutPerSite: limit };
+  }
+  return rest;
+};
+
 export const submitProtocol = async (formData) => {
   const { response, body } = await fetchJson(`${API_BASE_URL}/generate_protocol`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(formData),
+    body: JSON.stringify(buildProtocolPayload(formData)),
   });
 
   if (!response.ok) {

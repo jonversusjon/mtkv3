@@ -96,4 +96,22 @@ describe("FormPage submission", () => {
     expect(posted[0].jobId).toBeUndefined(); // the browser no longer invents the identity
     expect(setResults).toHaveBeenCalled();
   });
+
+  it.each(["1", "2", "3"])("choosing %s in the settings selector posts that canonical limit", async (choice) => {
+    submitReply = () => json({ job_id: "srv", task_id: "t" }, true);
+    render(
+      <MemoryRouter>
+        <FormPage showSettings={true} setShowSettings={vi.fn()} setResults={vi.fn()} />
+      </MemoryRouter>
+    );
+    const select = await screen.findByLabelText(/max mutations\/site/i);
+    // go via another value first so the change is real for every choice, including the default 1
+    fireEvent.change(select, { target: { value: choice === "3" ? "2" : "3" } });
+    fireEvent.change(select, { target: { value: choice } });
+    const button = await screen.findByRole("button", { name: /submit|generate|design|run/i });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].maxMutPerSite).toBe(Number(choice));
+  });
 });

@@ -21,7 +21,7 @@
 #      then removes ONLY the resources this run created (its two Compose projects and the temp checkout).
 # Required files in DIR: summary.json and browser-results.json (always written, truthfully: NOT-RUN/FAIL/OPEN/PASS).
 # Exit status: 0 PASS | 1 FAIL | 2 infrastructure unavailable (acceptance NOT run) | 3 OPEN (checks that
-# cannot yet be decided, e.g. a pending owner decision; never reported as PASS).
+# cannot be decided; never reported as PASS).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

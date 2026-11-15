@@ -15,7 +15,7 @@
       "species": "homo_sapiens",
       "kozak": "MTK",
       "maxMutPerSite": 1,
-      "note": "dev_config_2 leaves species empty (the form fills in the first available species, homo_sapiens). The form field is named maxMutationsPerSite but the backend model only reads the alias maxMutPerSite; the tests send the alias so the setting is actually applied. That naming mismatch is reported, not changed, here."
+      "note": "dev_config_2 leaves species empty (the form fills in the first available species, homo_sapiens). The form's 1/2/3 Max mutations/site selection is honored: the client sends it as the canonical maxMutPerSite, so the browser run selects 1 and fixture.canonical-limit-1-run can pass once the request and the worker-persisted request are observed to carry 1."
     },
     "follow_up_action": "Supports user-selected primer follow-up: the sequence has exactly one restriction site (below) so there is one site key to choose a codon for. A second fixture is therefore not needed."
   },

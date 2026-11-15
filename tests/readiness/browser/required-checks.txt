@@ -33,7 +33,9 @@ results.restriction-site
 results.parts
 results.job-api
 results.display-equals-api
-fixture.synonymous-alternatives-observed-under-limit-3
+setting.max-mutations-request
+worker.persisted-limit
+fixture.synonymous-alternatives-limit-1
 fixture.canonical-limit-1-run
 primers.alternative-available
 primers.request

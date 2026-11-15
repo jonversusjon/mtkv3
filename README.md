@@ -130,20 +130,20 @@ not written when acceptance did not run), `checks.jsonl`, `tested-sha.txt`, `sou
 container versions and `pip freeze`, teardown leftovers).
 
 Exit status: `0` PASS, `1` FAIL, `2` infrastructure unavailable (**acceptance not run**, `NOT-RUN.txt` explains), `3`
-**OPEN** (some required check cannot be decided yet). Only a check recorded `PASS` satisfies a required check: a required
+**OPEN** (a check recorded `OPEN` cannot be decided). Only a check recorded `PASS` satisfies a required check: a required
 check that is missing, or recorded `INFO`, `SKIP` or any unknown status, fails the run; a Playwright test that was
 skipped, interrupted or failed fails the run; `OPEN` stays `OPEN`. On another host, run the same command there;
 acceptance for Lerpterp3 stays open until it has been run on Lerpterp3.
 
-### Known OPEN item: maximum mutations per site
+### Maximum mutations per site
 
-The form's *Max mutations/site* setting is sent as `maxMutationsPerSite`, but the backend only reads
-`maxMutPerSite` (default **3**), so the form's effective limit is the legacy 3. The named fixture's expectations use the
-canonical limit 1. Which mapping is intended is an **owner decision that has not been made**; nothing here maps the
-setting, changes defaults, or rewrites requests to fake limit 1. Consequently the acceptance run records
-`fixture.canonical-limit-1-run` as **OPEN** (result `3`), and reports the codon options it actually observed under the
-effective limit 3 separately (`fixture.synonymous-alternatives-observed-under-limit-3`), never as the canonical run.
-The restriction-site and processed-sequence checks do not depend on this limit.
+The form's *Max mutations/site* selection (1/2/3) is honored: the client request boundary (`submitProtocol`) sends it as
+the backend's canonical `maxMutPerSite`, the current selection overriding any stale canonical value; a direct
+`maxMutPerSite` passes through when the form has no selection, and the backend default (3) applies when both are absent.
+The acceptance run selects **1** through the real settings selector, observes `maxMutPerSite=1` in the actual POST,
+confirms the parsed request the real worker persisted in this run's own Redis carries limit 1, and only then records
+`fixture.canonical-limit-1-run` as `PASS` (together with `fixture.synonymous-alternatives-limit-1`). Requests are never
+rewritten or intercepted. The restriction-site and processed-sequence expectations are independent of the limit.
 
 ### Controlled-failure note
 
