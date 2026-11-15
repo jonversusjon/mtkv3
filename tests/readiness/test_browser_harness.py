@@ -303,3 +303,76 @@ def test_spec_pauses_only_the_run_owned_worker_and_resumes_in_finally():
     assert 'docker("pause", WORKER)' in spec and "sequence-status-pending" in spec
     for cid in ("pending.worker-paused", "pending.api-state", "pending.ui-feedback", "pending.worker-resumed", "pending.then-success"):
         assert cid in spec and cid in REQUIRED.read_text()
+
+
+# ---- reporting policy is the COMMITTED one, frozen, and immune to working-tree edits (review F1) --------------
+PERMISSIVE_SUMMARIZER = (
+    'import json, pathlib, sys\n'
+    'out = pathlib.Path(sys.argv[1])\n'
+    '(out / "summary.json").write_text(json.dumps({"verdict": "PASS", "note": "working-tree summarizer ran" + "." * 100}))\n'
+    '(out / "browser-results.json").write_text(json.dumps({"verdict": "PASS", "pad": "." * 100}))\n'
+    'sys.exit(0)\n')
+
+
+def test_uncommitted_edits_to_summarizer_and_required_checks_do_not_affect_committed_reporting(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "scripts/readiness").mkdir(parents=True)
+    (repo / "tests/readiness/browser").mkdir(parents=True)
+    shutil.copy(SUMMARIZE, repo / "scripts/readiness/summarize_evidence.py")
+    shutil.copy(REPO / "scripts/readiness/freeze_policy.sh", repo / "scripts/readiness/freeze_policy.sh")
+    shutil.copy(REQUIRED, repo / "tests/readiness/browser/required-checks.txt")
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "c1")
+    sha = _git(repo, "rev-parse", "HEAD")
+    committed_summ = (repo / "scripts/readiness/summarize_evidence.py").read_bytes()
+    committed_req = (repo / "tests/readiness/browser/required-checks.txt").read_bytes()
+
+    # uncommitted edits to BOTH policy files: an always-PASS summarizer and an empty required list
+    (repo / "scripts/readiness/summarize_evidence.py").write_text(PERMISSIVE_SUMMARIZER)
+    (repo / "tests/readiness/browser/required-checks.txt").write_text("# nothing required\n")
+    dirty = {p: p.read_bytes() for p in (repo / "scripts/readiness/summarize_evidence.py",
+                                         repo / "tests/readiness/browser/required-checks.txt")}
+
+    out = tmp_path / "evidence"
+    out.mkdir()
+    r = run("bash", str(repo / "scripts/readiness/freeze_policy.sh"), str(out))
+    assert r.returncode == 0 and r.stdout.strip() == sha, r.stderr
+    frozen_summ, frozen_req = out / "policy/summarize_evidence.py", out / "policy/required-checks.txt"
+    assert frozen_summ.read_bytes() == committed_summ and frozen_req.read_bytes() == committed_req
+    meta = json.loads((out / "policy/policy.json").read_text())
+    assert meta["source_sha"] == sha
+    import hashlib
+    assert meta["files"]["summarize_evidence.py"]["sha256"] == hashlib.sha256(committed_summ).hexdigest()
+    assert meta["files"]["required-checks.txt"]["sha256"] == hashlib.sha256(committed_req).hexdigest()
+    assert meta["files"]["summarize_evidence.py"]["git_blob"] == _git(repo, "rev-parse", f"{sha}:scripts/readiness/summarize_evidence.py")
+
+    # the repo's real run-owned cleanup deletes the checkout, caches and snapshot: reporting must still work from
+    # OUT alone. Evidence of a run with NOTHING recorded: the committed policy must say FAIL, not PASS.
+    (out / "checks.jsonl").write_text(json.dumps(row("stack.worker-ping", "PASS")) + "\n")
+    rc = run("python3", "-I", str(frozen_summ), str(out), str(frozen_req), "0").returncode
+    summary = json.loads((out / "summary.json").read_text())
+    br = json.loads((out / "browser-results.json").read_text())
+    assert rc == 1 and summary["verdict"] == br["verdict"] == "FAIL"
+    assert summary["counts"]["required_missing"] > 0 and "working-tree" not in json.dumps(summary)
+    assert (out / "summary.json").stat().st_size >= 100 and (out / "browser-results.json").stat().st_size >= 100
+
+    # negative control: the working-tree policy WOULD have changed the verdict (so the test can fail)
+    other = tmp_path / "wt"
+    other.mkdir()
+    (other / "checks.jsonl").write_text("")
+    run("python3", "-I", str(repo / "scripts/readiness/summarize_evidence.py"), str(other), str(repo / "tests/readiness/browser/required-checks.txt"), "0")
+    assert json.loads((other / "summary.json").read_text())["verdict"] == "PASS"
+
+    # main checkout edits are preserved byte for byte
+    assert all(p.read_bytes() == b for p, b in dirty.items())
+
+
+def test_harness_final_reporting_uses_frozen_policy_not_working_tree_or_deleted_checkout():
+    text = SCRIPT.read_text()
+    assert "freeze_policy.sh" in text and "stack.reporting-policy" in text
+    final = text.split("# final reporting", 1)[1]
+    assert '"$OUT/policy/summarize_evidence.py"' in final and '"$OUT/policy/required-checks.txt"' in final
+    assert "$ROOT/$BROWSER_DIR/required-checks.txt" not in final and "scripts/readiness/summarize_evidence.py" not in final
+    # the not-run path also uses the frozen committed summarizer
+    assert 'python3 -I "$ROOT/scripts/readiness/summarize_evidence.py"' not in text

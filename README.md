@@ -112,10 +112,18 @@ The run, in order:
 5. smoke-checks the **development** launch (`docker-compose.dev.yaml`, separate isolated project);
 6. removes only what it created (the two Compose projects, their images/volumes, the temp checkout and caches).
 
+**Which reporting policy ran.** The verdict is computed by the summarizer (`scripts/readiness/summarize_evidence.py`)
+and required-check list (`tests/readiness/browser/required-checks.txt`) **of the tested commit**, read with `git show
+<sha>:<path>` by `scripts/readiness/freeze_policy.sh` and saved in the evidence directory as `policy/` (with the source
+SHA, git blob ids and sha256 of each file in `policy/policy.json`). Final reporting runs those frozen copies after the
+run-owned stack, caches and checkout are deleted; the summarizer needs only the Python standard library. Uncommitted
+edits to either file in your working tree are never used and never copied into the report. The `stack.reporting-policy`
+check records that the frozen policy equals the snapshot's.
+
 Evidence in the output directory: **`summary.json`** and **`browser-results.json`** (always written, each at least
 100 bytes, derived only from observed facts: `NOT-RUN`, `FAIL`, `OPEN` or `PASS`; they include the per-test Playwright
 outcomes and the pending/success/failure observations), `SUMMARY.md`, `result.json` (same verdict as `summary.json`;
-not written when acceptance did not run), `checks.jsonl`, `tested-sha.txt`, `source-exclusions.txt`, `environment.json`
+not written when acceptance did not run), `checks.jsonl`, `tested-sha.txt`, `source-exclusions.txt`, `policy/`, `environment.json`
 (host, kernel, Docker/Compose/Node/Playwright/Chromium versions, image IDs), `commands.txt` (exact commands),
 `trace.zip` (Playwright trace), `screenshots/` (including `05a2-pending.png`), `network.json`, `browser-console.json`,
 `downloaded-primers.tsv`, `playwright-report.json`, `logs/` (build, compose, `worker-ping.txt`, `chromium-ldd.txt`,

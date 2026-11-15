@@ -50,12 +50,13 @@ if [ "$MODE" = check ]; then
 
   for f in "$BROWSER_DIR/acceptance.spec.mjs" "$BROWSER_DIR/playwright.config.mjs" "$BROWSER_DIR/package.json" \
            "$BROWSER_DIR/package-lock.json" "$BROWSER_DIR/required-checks.txt" scripts/readiness/summarize_evidence.py \
-           scripts/readiness/snapshot_source.sh \
+           scripts/readiness/snapshot_source.sh scripts/readiness/freeze_policy.sh \
            tests/readiness/expectations.json docker-compose.yaml docker-compose.dev.yaml README.md; do
     [ -f "$f" ] && ok "$f exists" || bad "$f is missing"
   done
   bash -n "${BASH_SOURCE[0]}" && ok "this script parses" || bad "script syntax"
   bash -n scripts/readiness/snapshot_source.sh && ok "snapshot_source.sh parses" || bad "snapshot_source.sh syntax"
+  bash -n scripts/readiness/freeze_policy.sh && ok "freeze_policy.sh parses" || bad "freeze_policy.sh syntax"
   command -v node >/dev/null || { bad "node not found"; }
   if command -v node >/dev/null; then
     node --check "$BROWSER_DIR/acceptance.spec.mjs" && ok "acceptance.spec.mjs syntax" || bad "acceptance.spec.mjs syntax"
@@ -144,7 +145,11 @@ CMDS="$OUT/commands.txt"; : > "$CMDS"
 STARTED="$(date -u +%FT%TZ)"
 infra_fail() {
   echo "ACCEPTANCE NOT RUN (infrastructure unavailable): $*" | tee "$OUT/NOT-RUN.txt" >&2
-  if command -v python3 >/dev/null; then python3 -I "$ROOT/scripts/readiness/summarize_evidence.py" --not-run "$OUT" "$*" >/dev/null 2>&1 || true; fi
+  # reporting policy = the committed summarizer, frozen from git objects (never the working-tree copy)
+  if command -v python3 >/dev/null && command -v git >/dev/null; then
+    [ -f "$OUT/policy/summarize_evidence.py" ] || bash "$ROOT/scripts/readiness/freeze_policy.sh" "$OUT" HEAD >/dev/null 2>&1 || true
+    [ -f "$OUT/policy/summarize_evidence.py" ] && { python3 -I "$OUT/policy/summarize_evidence.py" --not-run "$OUT" "$*" >/dev/null 2>&1 || true; }
+  fi
   exit 2
 }
 
@@ -227,6 +232,17 @@ SNAPSHOT_SHA="$(bash "$ROOT/scripts/readiness/snapshot_source.sh" "$CHK" "$OUT/s
 [ "$SNAPSHOT_SHA" = "$SHA" ] || infra_fail "snapshot SHA $SNAPSHOT_SHA != HEAD $SHA"
 printf '%s\n' "$SHA" > "$OUT/tested-sha.txt"
 EXCL="$(grep -c . <(git status --porcelain --untracked-files=all) || true)"
+# freeze the committed reporting policy (summarizer + required checks) into OUT now: the checkout is deleted at teardown
+# and the working tree may hold uncommitted edits to either file; neither may influence the verdict for $SHA.
+printf '+ scripts/readiness/freeze_policy.sh %s %s   # git show %s:<summarizer, required-checks>\n' "$OUT" "$SHA" "$SHA" >> "$CMDS"
+bash "$ROOT/scripts/readiness/freeze_policy.sh" "$OUT" "$SHA" >/dev/null 2>> "$OUT/logs/snapshot.log" \
+  || { addcheck stack.reporting-policy FAIL "could not freeze the committed reporting policy"; infra_fail "could not freeze the committed reporting policy for $SHA"; }
+if cmp -s "$OUT/policy/summarize_evidence.py" "$CHK/scripts/readiness/summarize_evidence.py" \
+   && cmp -s "$OUT/policy/required-checks.txt" "$CHK/$BROWSER_DIR/required-checks.txt"; then
+  addcheck stack.reporting-policy PASS "reporting uses the summarizer and required-checks of committed $SHA, frozen in policy/ (hashes in policy/policy.json); working-tree edits to them are ignored"
+else
+  addcheck stack.reporting-policy FAIL "frozen policy differs from the snapshot of $SHA"
+fi
 addcheck stack.source-isolation PASS "tested the committed snapshot of $SHA; $EXCL uncommitted/untracked working-tree entries were excluded and not copied (listed in source-exclusions.txt)"
 if [ -e "$CHK/flask_backend/static/react" ] || [ -e "$CHK/react-frontend/node_modules" ]; then
   addcheck stack.fresh-build FAIL "committed tree already contains a built bundle or node_modules"
@@ -366,7 +382,10 @@ p = pathlib.Path(sys.argv[1]) / "environment.json"
 d = json.loads(p.read_text()); d["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 p.write_text(json.dumps(d, indent=1))
 E_PY
-python3 -I scripts/readiness/summarize_evidence.py "$OUT" "$ROOT/$BROWSER_DIR/required-checks.txt" "$PW_EXIT"
+# final reporting: the frozen committed policy in $OUT/policy (the snapshot checkout is already deleted; the working
+# tree's copies are deliberately NOT used)
+printf '+ python3 -I %s/policy/summarize_evidence.py %s %s/policy/required-checks.txt %s\n' "$OUT" "$OUT" "$OUT" "$PW_EXIT" >> "$CMDS"
+python3 -I "$OUT/policy/summarize_evidence.py" "$OUT" "$OUT/policy/required-checks.txt" "$PW_EXIT"
 RC=$?
 echo "evidence: $OUT (summary.json, browser-results.json, SUMMARY.md, result.json, source-exclusions.txt, trace.zip, screenshots/, network.json, logs/, commands.txt)"
 exit $RC
