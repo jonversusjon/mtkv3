@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import ResultTabs from "./ResultTabs";
 
@@ -100,5 +100,94 @@ describe("results lifecycle in the browser", () => {
     await screen.findByText("Show Raw SSE Events");
     const stored = JSON.parse(sessionStorage.getItem("sseEvents_B_0"));
     expect(stored.map((e) => e.message)).toEqual(["right-job event"]);
+  });
+
+  // ---- F2: job-level failure is terminal and understandable in the consumer ----
+  it("unknown job shows a terminal alert, not Processing forever", async () => {
+    seedForm(["alpha"]);
+    backend({});
+    render(<ResultTabs jobId="GONE" />);
+    expect(await screen.findByTestId("sequence-status-job-failure")).toHaveTextContent(/no longer exists/i);
+    expect(screen.queryByTestId("sequence-status-pending")).toBeNull();
+  });
+
+  it("job identity mismatch shows a terminal alert", async () => {
+    seedForm(["alpha"]);
+    backend({ A: { jobId: "OTHER", state: "success", sequences: [{ sequenceIdx: 0, state: "success", result: {} }] } });
+    render(<ResultTabs jobId="A" />);
+    expect(await screen.findByTestId("sequence-status-job-failure")).toHaveTextContent(/different job/i);
+    expect(screen.queryByTestId("sequence-status-pending")).toBeNull();
+    expect(screen.queryByTestId("sequence-status-success")).toBeNull();
+  });
+
+  // ---- F3: event recovery ----
+  const okJob = { A: { jobId: "A", state: "success", sequences: [{ sequenceIdx: 0, state: "success", result: { answer: 42 } }] } };
+  const evs = [{ jobId: "A", sequenceIdx: 0, step: "Restriction Sites", message: "Found 1 restriction sites" }];
+
+  it("a first failed event-recovery request is retried and then succeeds (silent SSE)", async () => {
+    seedForm(["alpha"]);
+    let eventCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const u = String(url);
+      if (u.includes("/events")) {
+        eventCalls += 1;
+        return eventCalls === 1 ? reply({ error: "boom" }, 500) : reply({ events: evs });
+      }
+      return reply(okJob.A);
+    }));
+    render(<ResultTabs jobId="A" recoveryBackoffMs={[5, 5]} />);
+    expect(await screen.findByText("Show Raw SSE Events")).toBeInTheDocument();
+    expect(eventCalls).toBe(2);
+  });
+
+  it("falls back to the durable result and offers a retry when events stay unavailable", async () => {
+    seedForm(["alpha"]);
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("/events")) return fail ? reply({ error: "down" }, 503) : reply({ events: evs });
+      return reply(okJob.A);
+    }));
+    render(<ResultTabs jobId="A" recoveryBackoffMs={[1, 1]} />);
+    expect(await screen.findByTestId("recovery-failed")).toBeInTheDocument();
+    expect(screen.getByTestId("durable-result")).toHaveTextContent('"answer": 42');
+    fail = false;
+    screen.getByRole("button", { name: "Retry" }).click();
+    expect(await screen.findByText("Show Raw SSE Events")).toBeInTheDocument();
+    expect(screen.queryByTestId("recovery-failed")).toBeNull();
+  });
+
+  it("stops retrying and does not store events after unmount", async () => {
+    seedForm(["alpha"]);
+    let eventCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("/events")) { eventCalls += 1; return reply({ error: "down" }, 503); }
+      return reply(okJob.A);
+    }));
+    const { unmount } = render(<ResultTabs jobId="A" recoveryBackoffMs={[400, 400, 400]} />);
+    await waitFor(() => expect(eventCalls).toBe(1));
+    unmount();
+    await act(async () => { await new Promise((r) => setTimeout(r, 900)); });
+    expect(eventCalls).toBe(1);
+    expect(sessionStorage.getItem("sseEvents_A_0")).toBeNull();
+  });
+
+  it("job change cancels the previous job's recovery and never merges its events", async () => {
+    seedForm(["alpha"]);
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const u = String(url);
+      if (u.includes("/jobs/A/events")) return gate.then(() => reply({ events: evs }));
+      if (u.includes("/jobs/A")) return reply(okJob.A);
+      if (u.includes("/jobs/B/events")) return reply({ events: [] });
+      return reply({ jobId: "B", state: "pending", sequences: [{ sequenceIdx: 0, state: "pending" }] });
+    }));
+    const { rerender } = render(<ResultTabs jobId="A" />);
+    await screen.findByTestId("sequence-status-success");
+    rerender(<ResultTabs jobId="B" />);
+    await screen.findByTestId("sequence-status-pending");
+    await act(async () => { release(); await new Promise((r) => setTimeout(r, 20)); });
+    expect(sessionStorage.getItem("sseEvents_A_0")).toBeNull();
+    expect(sessionStorage.getItem("sseEvents_B_0")).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import ResultTab from "./ResultTab"; // Ensure this path is correct
 import useJobStatus from "../../hooks/useJobStatus";
 
-const ResultTabs = ({ jobId }) => {
+const ResultTabs = ({ jobId, recoveryBackoffMs }) => {
   // Load sequences from sessionStorage (each sequence gets an id that serves as sequenceIdx)
   const [sequences, setSequences] = useState([]);
   const [activeTab, setActiveTab] = useState(0); // Keep track of the active tab index
@@ -135,7 +135,7 @@ const ResultTabs = ({ jobId }) => {
       <div className="flex-1 relative">
         {sequences.map((seq, index) => (
           <div
-            key={seq.id}
+            key={`${jobId}:${seq.id}`}
             role="tabpanel"
             aria-labelledby={`tab-button-${seq.id}`}
             id={`tab-content-${seq.id}`}
@@ -148,6 +148,8 @@ const ResultTabs = ({ jobId }) => {
               sequenceIdx={seq.id}
               sequenceStatus={recordFor(seq.id)}
               jobState={job.state}
+              jobError={job.error}
+              recoveryBackoffMs={recoveryBackoffMs}
               pollError={job.error}
               onRetry={job.retry}
             />

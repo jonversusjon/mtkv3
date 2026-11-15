@@ -292,3 +292,74 @@ def test_optional_custom_primer_step_failure_keeps_finished_work_and_is_reported
     res = status["sequences"][0]["result"]
     assert res["restrictionSites"] and "RuntimeError" in res["errors"]["customPrimers"]
     assert "primer3 exploded" not in json.dumps(res["errors"])
+
+
+# ---- F1: terminal persistence is part of the controlled worker flow ----------------
+def _flaky_mark_success(monkeypatch, lifecycle, fail_times):
+    from flask_backend import job_state as js
+
+    real = js.mark_success
+    calls = {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] <= fail_times:
+            raise ConnectionError("redis down")
+        return real(*a, **k)
+
+    monkeypatch.setattr(js, "mark_success", flaky)
+    monkeypatch.setattr(lifecycle.tasks, "TERMINAL_WRITE_BACKOFF", (0, 0, 0))
+    return calls
+
+
+def test_transient_terminal_write_failure_is_retried_and_success_recovered(lifecycle, monkeypatch):
+    calls = _flaky_mark_success(monkeypatch, lifecycle, fail_times=2)
+    _, data = submit(lifecycle, payload())
+    seq = job(lifecycle, data["job_id"])["sequences"][0]
+    assert seq["state"] == "success" and seq["result"]
+    assert calls["n"] == 3
+
+
+def test_persistent_terminal_write_failure_is_explicit_failure_consistent_with_celery(lifecycle, monkeypatch):
+    _flaky_mark_success(monkeypatch, lifecycle, fail_times=10**6)
+    _, data = submit(lifecycle, payload())
+    status = job(lifecycle, data["job_id"])
+    seq = status["sequences"][0]
+    assert status["state"] == "failure" and seq["state"] == "failure"
+    assert seq["errorCode"] == "storage_error" and "result could not be stored" in seq["error"]
+    terminal = [p for _, p in lifecycle.sse.published if p.get("terminal")]
+    assert terminal[-1]["status"] == "failure"
+
+
+def _direct_child(lifecycle):
+    """Create a job, then run the real child task directly so its Celery outcome is visible."""
+    from flask_backend.models import ProtocolRequest  # noqa: F401  (validates the payload shape)
+
+    js = lifecycle.job_state
+    js.create_job("j-direct", 1)
+    body = {**payload(), "jobId": "j-direct"}
+    return lifecycle.tasks.process_protocol_sequence.apply(args=(body, 0))
+
+
+def test_persistent_failure_celery_outcome_matches_job_record(lifecycle, monkeypatch):
+    _flaky_mark_success(monkeypatch, lifecycle, fail_times=10**6)
+    res = _direct_child(lifecycle)
+    assert res.state == "FAILURE"
+    assert job(lifecycle, "j-direct")["sequences"][0]["state"] == "failure"
+
+
+def test_failure_write_also_failing_leaves_bounded_honest_state(lifecycle, monkeypatch):
+    js = lifecycle.job_state
+    _flaky_mark_success(monkeypatch, lifecycle, fail_times=10**6)
+
+    def down(*a, **k):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(js, "mark_failure", down)
+    res = _direct_child(lifecycle)
+    assert res.state == "FAILURE"  # never a Celery success without a retrievable result
+    assert job(lifecycle, "j-direct")["state"] == "pending"
+    # A record that never becomes terminal is reported as an explicit failure after the bound.
+    monkeypatch.setattr(js, "STALE_PENDING_SECONDS", -1)
+    stale = job(lifecycle, "j-direct")
+    assert stale["state"] == "failure" and stale["sequences"][0]["errorCode"] == "stalled"

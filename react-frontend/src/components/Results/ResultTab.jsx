@@ -13,13 +13,18 @@ const eventKey = (sequenceIdx, event) => {
   return `seq${sequenceIdx}-${JSON.stringify(rest)}`;
 };
 
+// Delays before each bounded retry of event recovery (so 1 try + 3 retries).
+export const RECOVERY_BACKOFF_MS = [500, 1500, 4000];
+
 const ResultTab = ({
   jobId,
   sequenceIdx,
   sequenceStatus,
   jobState,
+  jobError,
   pollError,
   onRetry,
+  recoveryBackoffMs = RECOVERY_BACKOFF_MS,
 }) => {
   // --- State and Refs ---
   const [rawSseEvents, setRawSseEvents] = useState(() => {
@@ -290,24 +295,44 @@ const ResultTab = ({
   // --- Recovery: SSE is transient. Once the server says this sequence is terminal,
   // replay its stored events (duplicates are ignored by processSseEvent) so a tab
   // that connected late, reconnected or reloaded still shows the full result.
-  const recoveredFor = useRef(null);
+  // Success is recorded only after a valid response; transient failures are retried
+  // with bounded backoff, then surfaced with a manual retry.  The effect is keyed on
+  // job+sequence+state, so unmount/job change cancels pending requests and timers.
+  const [recovery, setRecovery] = useState("idle"); // idle | loading | failed | done
+  const [recoveryRound, setRecoveryRound] = useState(0); // bump = manual retry
   const terminalState = sequenceStatus?.state;
+  const isTerminal = terminalState === "success" || terminalState === "failure";
   useEffect(() => {
-    if (terminalState !== "success" && terminalState !== "failure") return undefined;
-    if (recoveredFor.current === `${jobId}:${terminalState}`) return undefined;
-    recoveredFor.current = `${jobId}:${terminalState}`;
+    if (!isTerminal) return undefined;
     let cancelled = false;
-    getJobEvents(jobId, sequenceIdx)
-      .then((events) => {
-        if (!cancelled) events.forEach(processSseEvent);
-      })
-      .catch((err) =>
-        console.error(`[ResultTab:${sequenceIdx}] Could not recover events:`, err)
-      );
+    let timer = null;
+    setRecovery("loading");
+    const attempt = (n) => {
+      getJobEvents(jobId, sequenceIdx)
+        .then((events) => {
+          if (cancelled) return;
+          if (!Array.isArray(events)) throw new Error("Invalid event recovery response.");
+          events.forEach(processSseEvent);
+          setRecovery("done");
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error(`[ResultTab:${sequenceIdx}] Could not recover events (attempt ${n + 1}):`, err);
+          if (n < recoveryBackoffMs.length) {
+            timer = setTimeout(() => attempt(n + 1), recoveryBackoffMs[n]);
+          } else {
+            setRecovery("failed");
+          }
+        });
+    };
+    attempt(0);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [terminalState, jobId, sequenceIdx, processSseEvent]);
+    // recoveryBackoffMs is a constant per mount; excluded so a new array literal cannot restart recovery
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTerminal, terminalState, jobId, sequenceIdx, processSseEvent, recoveryRound]);
 
   // --- Mount/Unmount Effect ---
   useEffect(() => {
@@ -333,9 +358,32 @@ const ResultTab = ({
       <SequenceStatus
         status={sequenceStatus}
         jobState={jobState}
+        jobError={jobError}
         pollError={pollError}
         onRetry={onRetry}
       />
+
+      {/* Rich events could not be recovered: say so, and let the user retry */}
+      {recovery === "failed" && (
+        <div role="alert" data-testid="recovery-failed"
+          className="mb-4 p-3 border-l-4 border-yellow-500 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-sm">
+          Detailed progress events could not be loaded.{" "}
+          <button type="button" className="underline font-medium"
+            onClick={() => setRecoveryRound((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Authoritative stored result: shown whenever the rich view has nothing to show */}
+      {sequenceStatus?.state === "success" && rawSseEvents.length === 0 && (
+        <details open data-testid="durable-result" className="mb-4">
+          <summary className="font-medium">Result</summary>
+          <pre className="overflow-x-auto text-sm p-2 border rounded">
+            {JSON.stringify(sequenceStatus.result ?? {}, null, 2)}
+          </pre>
+        </details>
+      )}
 
       {/* Status Messages */}
       {rawSseEvents.length === 0 &&

@@ -27,6 +27,9 @@ FAILURE = "failure"
 TERMINAL = (SUCCESS, FAILURE)
 
 TTL_SECONDS = 24 * 3600
+# A sequence still pending this long after submission is reported as failed: the
+# worker died or could not write any terminal record (e.g. storage lost).
+STALE_PENDING_SECONDS = 2 * 3600
 
 _client_override = None
 
@@ -147,10 +150,17 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     if job is None:
         return None
     sequences = []
+    stale = time.time() - job.get("createdAt", time.time()) > STALE_PENDING_SECONDS
     for idx in range(job.get("total", 0)):
-        sequences.append(
-            _get(_seq_key(job_id, idx)) or {"sequenceIdx": idx, "state": PENDING}
-        )
+        rec = _get(_seq_key(job_id, idx)) or {"sequenceIdx": idx, "state": PENDING}
+        if rec["state"] == PENDING and stale:
+            rec = {
+                "sequenceIdx": idx,
+                "state": FAILURE,
+                "error": f"Sequence {idx + 1} did not finish and no result was recorded. Please resubmit.",
+                "errorCode": "stalled",
+            }
+        sequences.append(rec)
     return {
         "jobId": job_id,
         "taskId": job.get("taskId"),

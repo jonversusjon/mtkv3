@@ -153,6 +153,26 @@ def _publish_terminal(job_id, index, state, message, **extra):
         print(f"Could not publish terminal event for {job_id}:{index}: {e}")
 
 
+# Bounded retry of terminal job-state writes (seconds to wait before each retry).
+TERMINAL_WRITE_BACKOFF = (0.2, 0.5, 1.0)
+
+
+def _persist_terminal(write, *args):
+    """Run a job_state terminal write, retrying transient storage errors a bounded
+    number of times.  Raises the last error if every attempt fails."""
+    import time
+
+    for delay in (None,) + tuple(TERMINAL_WRITE_BACKOFF):
+        if delay:
+            time.sleep(delay)
+        try:
+            return write(*args)
+        except Exception as e:
+            last = e
+            print(f"Terminal job-state write failed ({type(e).__name__}); retrying")
+    raise last
+
+
 @shared_task(ignore_result=False)
 def process_protocol_sequence(req_dict: dict, index: int):
     """Process one sequence and record its terminal outcome (success or failure)
@@ -173,7 +193,24 @@ def process_protocol_sequence(req_dict: dict, index: int):
         # Re-raise to mark the Celery task as failed
         raise
     if job_id:
-        job_state.mark_success(job_id, index, output["result"])
+        try:
+            _persist_terminal(job_state.mark_success, job_id, index, output["result"])
+        except Exception as e:
+            # The computed result could not be stored, so it cannot be retrieved:
+            # do not invent a success.  Record an explicit, visible failure instead.
+            print(f"[ERROR] Could not store result for {job_id}:{index}: {e}")
+            message = (
+                f"Sequence {index + 1} finished computing but its result could not be "
+                "stored. Please resubmit; if it persists, contact the administrator."
+            )
+            try:
+                _persist_terminal(job_state.mark_failure, job_id, index, message, "storage_error")
+                _publish_terminal(job_id, index, job_state.FAILURE, message, error=message)
+            except Exception as e2:
+                # Storage is down for failure writes too.  The record stays pending;
+                # get_job reports a stale pending sequence as failed (see job_state).
+                print(f"[ERROR] Could not store failure for {job_id}:{index}: {e2}")
+            raise  # Celery outcome = FAILURE, consistent with the job record
         _publish_terminal(
             job_id, index, job_state.SUCCESS, f"Sequence {index + 1} complete"
         )

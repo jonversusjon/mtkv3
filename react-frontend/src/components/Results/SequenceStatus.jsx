@@ -1,8 +1,9 @@
 // Results/SequenceStatus.jsx
 // Shows whether ONE sequence is pending, finished, failed, or timed out.
 // `status` is that sequence's server record ({state, error}) or undefined while unknown;
+// `jobError` is the job-level failure message (no per-sequence record exists then).
 // `jobState` is the whole-job poll state ("timeout" is only known client-side).
-const SequenceStatus = ({ status, jobState, pollError, onRetry }) => {
+const SequenceStatus = ({ status, jobState, jobError, pollError, onRetry }) => {
   const state = status?.state;
 
   if (state === "failure") {
@@ -18,6 +19,16 @@ const SequenceStatus = ({ status, jobState, pollError, onRetry }) => {
       <div role="status" data-testid="sequence-status-success"
         className="mb-4 p-3 border-l-4 border-green-500 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded-sm">
         Finished. Results are shown below.
+      </div>
+    );
+  }
+  // Job-level failure (unknown job, identity mismatch) with no terminal record for
+  // this sequence: say so instead of showing "Processing" forever.
+  if (jobState === "failure") {
+    return (
+      <div role="alert" data-testid="sequence-status-job-failure"
+        className="mb-4 p-4 border-l-4 border-red-500 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 rounded-sm">
+        {jobError || "The job failed and this sequence has no result."}
       </div>
     );
   }
