@@ -45,6 +45,19 @@ describe("useJobStatus", () => {
     expect(fetchMock.mock.calls.length).toBe(calls); // bounded: no more polling
   });
 
+  it("a timed-out wait can be retried and then receives the later real result", async () => {
+    vi.useFakeTimers();
+    let done = false;
+    vi.stubGlobal("fetch", vi.fn(() => reply(job("A", done ? "success" : "pending", done ? [{ sequenceIdx: 0, state: "success", result: { ok: 1 } }] : []))));
+    const { result } = renderHook(() => useJobStatus("A", { intervalMs: 100, timeoutMs: 450 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current.state).toBe("timeout");
+    done = true; // the worker finishes after the browser stopped waiting
+    await act(async () => { result.current.retry(); await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.state).toBe("success");
+    expect(result.current.sequences[0].result).toEqual({ ok: 1 });
+  });
+
   it("reaches a bounded timeout even when a request stalls after headers", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => new Promise(() => {}) })));

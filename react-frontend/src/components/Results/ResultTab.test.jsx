@@ -171,6 +171,25 @@ describe("results lifecycle in the browser", () => {
     expect(sessionStorage.getItem("sseEvents_A_0")).toBeNull();
   });
 
+  it("a timed-out wait says work may still finish and Check again shows the later real result", async () => {
+    seedForm(["alpha"]);
+    vi.useFakeTimers();
+    try {
+      const jobs = { A: { jobId: "A", state: "pending", sequences: [{ sequenceIdx: 0, state: "pending" }] } };
+      backend(jobs);
+      render(<ResultTabs jobId="A" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(16 * 60 * 1000); });
+      const box = screen.getByTestId("sequence-status-timeout");
+      expect(box.textContent).toMatch(/may still finish/);
+      jobs.A = { jobId: "A", state: "success", sequences: [{ sequenceIdx: 0, state: "success", result: { processedSequence: "ATG" } }] };
+      await act(async () => { screen.getByRole("button", { name: /check again/i }).click(); await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByTestId("sequence-status-success")).toBeTruthy();
+      expect(screen.queryByTestId("sequence-status-timeout")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("job change cancels the previous job's recovery and never merges its events", async () => {
     seedForm(["alpha"]);
     let release;

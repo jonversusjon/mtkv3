@@ -8,6 +8,7 @@ import copy
 import json
 import pathlib
 import re
+import time
 
 import pytest
 
@@ -227,6 +228,18 @@ def test_pending_until_the_sequence_work_reports(lifecycle):
     assert job(lifecycle, "j-pending")["state"] == "failure"
 
 
+def test_old_pending_job_stays_pending_then_becomes_successful(lifecycle):
+    js = lifecycle.job_state
+    js.create_job("j-old", 1)
+    js._put(js._job_key("j-old"), {"jobId": "j-old", "total": 1, "createdAt": time.time() - 30 * 24 * 3600})
+    status = job(lifecycle, "j-old")
+    assert status["state"] == "pending" and status["sequences"][0]["state"] == "pending"
+    assert "stalled" not in json.dumps(status)
+    js.mark_success("j-old", 0, {"ok": True})
+    status = job(lifecycle, "j-old")
+    assert status["state"] == "success" and status["sequences"][0]["result"] == {"ok": True}
+
+
 def test_unknown_job_is_404(lifecycle):
     assert lifecycle.client.get("/api/jobs/does-not-exist").status_code == 404
     assert lifecycle.client.get("/api/jobs/does-not-exist/events?sequenceIdx=0").status_code == 404
@@ -359,10 +372,10 @@ def test_failure_write_also_failing_leaves_bounded_honest_state(lifecycle, monke
     res = _direct_child(lifecycle)
     assert res.state == "FAILURE"  # never a Celery success without a retrievable result
     assert job(lifecycle, "j-direct")["state"] == "pending"
-    # A record that never becomes terminal is reported as an explicit failure after the bound.
-    monkeypatch.setattr(js, "STALE_PENDING_SECONDS", -1)
-    stale = job(lifecycle, "j-direct")
-    assert stale["state"] == "failure" and stale["sequences"][0]["errorCode"] == "stalled"
+    # Storage loss cannot justify inventing a worker failure from elapsed time.
+    js._put(js._job_key("j-direct"), {"jobId": "j-direct", "total": 1, "createdAt": 0})
+    old = job(lifecycle, "j-direct")
+    assert old["state"] == "pending" and old["sequences"][0]["state"] == "pending"
 
 
 # ---- round 2: post-dispatch metadata + worker-error persistence ------------------
