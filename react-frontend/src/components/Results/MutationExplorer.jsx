@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-toastify";
-import { designPrimers } from "../../api/api";
+import { designPrimers, getTaskStatus } from "../../api/api";
 import MutationExplorerContainer from "./MutationExplorerContainer";
 import {
   groupUniqueCodons,
+  sortedCodonSequences,
   getOriginalCodon,
   getRecognitionSiteSequence,
   processMutationOptions,
   initializeSelections,
 } from "../../utils/mutationUtils";
 
-const MutationExplorer = ({ stepSseData }) => {
+export const PRIMER_POLL_INTERVAL_MS = 1500;
+export const PRIMER_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// jobId / sequenceIdx identify the tab this explorer belongs to; onPrimersDesigned
+// receives the finished result (same shape as the SSE event) for display.
+const MutationExplorer = ({ stepSseData, jobId, sequenceIdx, onPrimersDesigned }) => {
   const [selectedCodonOption, setSelectedCodonOption] = useState({});
   const [recommendedMutations, setRecommendedMutations] = useState({});
   const [isDesigning, setIsDesigning] = useState(false);
@@ -58,7 +66,7 @@ const MutationExplorer = ({ stepSseData }) => {
       const group = groups[groupKey];
       if (!group) return;
 
-      const codonSequences = Object.keys(group);
+      const codonSequences = sortedCodonSequences(group);
       const codon = group[codonSequences[optionIndex]]?.codon;
       if (codon) mutationSelections[site.siteKey] = codon.codonSequence;
     });
@@ -68,14 +76,52 @@ const MutationExplorer = ({ stepSseData }) => {
       return;
     }
 
+    const idx = Number(sequenceIdx);
+    if (!jobId || !Number.isInteger(idx) || idx < 0) {
+      toast.error("Primer design failed: this result is not linked to a submission.");
+      return;
+    }
+
     setIsDesigning(true);
     try {
-      await designPrimers({
-        job_id: sessionStorage.getItem("jobId"),
-        sequence_idx: sessionStorage.getItem("currentSequenceIdx"),
+      const accepted = await designPrimers({
+        job_id: jobId,
+        sequence_idx: idx,
         selected_mutations: mutationSelections,
       });
-      toast.success("Primer design started");
+      toast.info("Primer design started");
+
+      // Consume the asynchronous result (the SSE event may also deliver it; the
+      // results view de-duplicates by task id).
+      const deadline = Date.now() + PRIMER_POLL_TIMEOUT_MS;
+      for (;;) {
+        const status = await getTaskStatus(accepted.task_id);
+        if (status.state === "SUCCESS") {
+          const result = status.result;
+          if (!result || !result.primerSet) {
+            throw new Error("The server returned no primers.");
+          }
+          if (onPrimersDesigned) {
+            onPrimersDesigned({
+              jobId,
+              sequenceIdx: idx,
+              step: "Primer Design",
+              message: "Custom primers designed for the selected mutations",
+              stepProgress: 100,
+              customPrimers: result,
+            });
+          }
+          toast.success("Custom primers designed");
+          break;
+        }
+        if (status.state === "FAILURE") {
+          throw new Error(status.error || "Primer design failed.");
+        }
+        if (Date.now() > deadline) {
+          throw new Error("Primer design is taking too long; check again later.");
+        }
+        await sleep(PRIMER_POLL_INTERVAL_MS);
+      }
     } catch (error) {
       toast.error(`Primer design failed: ${error.message || "Unknown error"}`);
     } finally {

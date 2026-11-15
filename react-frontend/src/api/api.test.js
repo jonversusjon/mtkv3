@@ -106,3 +106,85 @@ describe("job lookups", () => {
     await expect(getJob("gone")).rejects.toThrow("Unknown job");
   });
 });
+
+import { designPrimers, getTaskStatus, exportPrimers } from "./api";
+
+describe("client URLs hit the intended handlers (no duplicated prefix)", () => {
+  const urls = async (fn) => {
+    const fetchMock = vi.fn(() => reply({ task_id: "t", state: "PENDING", job_id: "j", events: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fn();
+    return fetchMock.mock.calls.map((c) => String(c[0]));
+  };
+
+  it.each([
+    ["submitProtocol", () => submitProtocol({}), "/api/generate_protocol"],
+    ["getJob", () => getJob("j 1"), "/api/jobs/j%201"],
+    ["getJobEvents", () => getJobEvents("j", 0), "/api/jobs/j/events?sequenceIdx=0"],
+    ["designPrimers", () => designPrimers({ job_id: "j" }), "/api/design_primers"],
+    ["getTaskStatus", () => getTaskStatus("t/1"), "/api/task-status/t%2F1"],
+  ])("%s requests exactly its route", async (_n, call, expected) => {
+    const [url] = await urls(() => call().catch(() => {}));
+    expect(url).toBe(expected);
+    expect(url).not.toMatch(/\/api\/api/);
+  });
+});
+
+describe("designPrimers", () => {
+  it("posts JSON with the numeric first-sequence index preserved", async () => {
+    const fetchMock = vi.fn(() => reply({ task_id: "t-9", status: "success" }, 202));
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await designPrimers({ job_id: "J", sequence_idx: 0, selected_mutations: { mutation480: "ACT" } });
+    expect(out.task_id).toBe("t-9");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ job_id: "J", sequence_idx: 0, selected_mutations: { mutation480: "ACT" } });
+  });
+
+  it("surfaces the server's rejection message", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => reply({ error: "sequence_idx must be a non-negative integer" }, 400)));
+    await expect(designPrimers({})).rejects.toThrow("sequence_idx must be a non-negative integer");
+  });
+
+  it("rejects an accepted response that has no task id", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => reply({ status: "success" }, 202)));
+    await expect(designPrimers({})).rejects.toThrow(/task id/);
+  });
+});
+
+describe("exportPrimers", () => {
+  const file = (text, type = "text/tab-separated-values; charset=utf-8", status = 200) => ({
+    ok: status < 400, status, headers: { get: () => type }, text: () => Promise.resolve(text),
+    json: () => Promise.reject(new Error("not json")),
+  });
+  const HEAD = "Primer Name\tSequence\tAmplicon\n";
+
+  it("posts rows, retrieves the file and returns its filename and TSV content", async () => {
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(reply({ download_url: "/api/export/primers_1_abcdef12.tsv" }))
+      .mockReturnValueOnce(Promise.resolve(file(HEAD + "p1\tACGT\t\n")));
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await exportPrimers([["p1", "ACGT", ""]]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ primers: [["p1", "ACGT", ""]] });
+    expect(String(fetchMock.mock.calls[1][0])).toBe("/api/export/primers_1_abcdef12.tsv");
+    expect(out.filename).toBe("primers_1_abcdef12.tsv");
+    expect(out.text).toBe(HEAD + "p1\tACGT\t\n");
+  });
+
+  it("surfaces export rejection, non-TSV bodies and failed downloads", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => reply({ error: "No primers to export" }, 400)));
+    await expect(exportPrimers([])).rejects.toThrow("No primers to export");
+    vi.stubGlobal("fetch", vi.fn()
+      .mockReturnValueOnce(reply({ download_url: "/api/export/x" }))
+      .mockReturnValueOnce(Promise.resolve(file("<html>", "text/html"))));
+    await expect(exportPrimers([["a", "A", ""]])).rejects.toThrow(/not return a TSV/);
+    vi.stubGlobal("fetch", vi.fn()
+      .mockReturnValueOnce(reply({ download_url: "/api/export/x" }))
+      .mockReturnValueOnce(Promise.resolve(file("garbage"))));
+    await expect(exportPrimers([["a", "A", ""]])).rejects.toThrow(/not a valid primer TSV/);
+    vi.stubGlobal("fetch", vi.fn()
+      .mockReturnValueOnce(reply({ download_url: "/api/export/x" }))
+      .mockReturnValueOnce(Promise.resolve({ ok: false, status: 404, headers: { get: () => "application/json" }, json: () => Promise.resolve({ error: "Unknown export" }) })));
+    await expect(exportPrimers([["a", "A", ""]])).rejects.toThrow("Unknown export");
+  });
+});

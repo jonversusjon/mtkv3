@@ -162,6 +162,24 @@ def _persist_terminal(write, *args):
     return job_state.write_with_retry(write, *args, backoff=TERMINAL_WRITE_BACKOFF)
 
 
+def _custom_primer_payload(primers, selected_mutations):
+    """JSON-safe, camelCase result of a custom primer design.
+
+    Site keys are reported the way the browser knows them (``mutation_480`` is
+    shown as ``mutation480`` because SSE payload keys are camelCased).
+    Selected mutations are a list of ``{siteKey, codonSequence}`` entries (not a
+    dict keyed by site) so site keys such as ``mutation_480`` survive the
+    snake->camel key conversion applied to SSE payloads unchanged.
+    """
+    return {
+        "primerSet": primers[0].model_dump(by_alias=True),
+        "selectedMutations": [
+            {"siteKey": to_camel(k), "codonSequence": v}
+            for k, v in sorted(selected_mutations.items())
+        ],
+    }
+
+
 @shared_task(ignore_result=False)
 def process_protocol_sequence(req_dict: dict, index: int):
     """Process one sequence and record its terminal outcome (success or failure)
@@ -288,20 +306,20 @@ def _run_sequence(req_dict: dict, index: int):
             if selected_mutations:
                 mutation_hash = get_mutation_hash(selected_mutations)
                 primers = protocol_maker.primer_designer.design_custom_primers(
-                    selected_mutations
+                    selected_mutations, protocol_maker.mutation_options
                 )
+                custom = _custom_primer_payload(primers, selected_mutations)
                 redis_client.set(
                     f"primers:{req.job_id}:{index}:{mutation_hash}",
-                    json.dumps(primers),
+                    json.dumps(custom),
                     ex=3600,
                 )
-                custom = {"primer_set": primers, "selected_mutations": selected_mutations}
                 result.custom_primers = custom
                 progress_callback(
-                    step="custom_primers_step",
+                    step="Primer Design",
                     message="Automatically designed custom primers for best mutations",
                     prog=100,
-                    custom_primers=custom,
+                    customPrimers={"status": "success", **custom},
                 )
         except Exception as e:
             print(f"Automatic custom primer design failed for sequence {index}: {e}")
@@ -360,27 +378,29 @@ def generate_protocol_task(req_dict: dict):
         raise
 
 
-@shared_task(ignore_result=False)
-def design_primers_task(job_id: str, sequence_idx: int, selected_mutations: dict):
-    """
-    Celery task to design custom primers for given selected mutations.
-    """
-    # Retrieve stored request context
+def _design_selected_primers(job_id, sequence_idx, selected_mutations):
+    """Design primers for the user's selection against *this* submission's sequence."""
+    if not isinstance(selected_mutations, dict) or not selected_mutations:
+        raise SequenceError("no mutations were selected")
     req_key = f"req:{job_id}:{sequence_idx}"
     try:
         req_json = redis_client.get(req_key)
-        if not req_json:
-            raise ValueError(f"No request found for key {req_key}")
-        req_dict = json.loads(req_json)
     except Exception as e:
-        print(f"Redis retrieval error for {req_key}: {str(e)}")
-        raise ValueError(f"Failed to retrieve request data: {str(e)}")
+        print(f"Redis retrieval error for {req_key}: {e}")
+        raise SequenceError("the submission could not be loaded; please try again")
+    if not req_json:
+        raise SequenceError(
+            "the submission is no longer available (it expired or the job id is "
+            "unknown); please resubmit the sequence"
+        )
+    req = ProtocolRequest.model_validate(json.loads(req_json))
+    if not 0 <= sequence_idx < len(req.sequences_to_domesticate):
+        raise SequenceError(f"sequence index {sequence_idx} is out of range")
 
-    req = ProtocolRequest.model_validate(req_dict)
-    # Initialize ProtocolMaker with original request context
+    seq = req.sequences_to_domesticate[sequence_idx]
     protocol_maker = ProtocolMaker(
         request_idx=sequence_idx,
-        sequence_to_domesticate=req.sequences_to_domesticate[sequence_idx],
+        sequence_to_domesticate=seq,
         codon_usage_dict=GoldenGateUtils().get_codon_usage_dict(req.species),
         max_mutations=req.max_mut_per_site,
         template_seq=req.template_sequence,
@@ -388,21 +408,94 @@ def design_primers_task(job_id: str, sequence_idx: int, selected_mutations: dict
         verbose=req.verbose_mode,
         job_id=f"{job_id}:{sequence_idx}",
     )
-    # Design custom primers
-    primers = protocol_maker.primer_designer.design_custom_primers(selected_mutations)
 
-    # Cache the designed primers
+    # Re-derive the (deterministic) mutation options of this sequence with the same
+    # stages the original run used, so selections are matched to real options.
+    quiet = lambda *_a, **_k: None  # noqa: E731
+    processed_seq, _msg, is_valid = protocol_maker.sequence_preparator.preprocess_sequence(
+        seq.sequence, seq.mtk_part_left, quiet
+    )
+    if not is_valid:
+        raise SequenceError("the sequence is not valid")
+    sites = protocol_maker.rs_analyzer.find_restriction_sites(processed_seq, quiet)
+    options = protocol_maker.mutation_analyzer.get_all_mutations(sites, quiet)
+
+    # The browser knows site keys in their camelCased SSE form ("mutation480");
+    # the analyzer's own keys are "mutation_480".  Accept either, reject unknowns.
+    canonical = {}
+    for key in options:
+        canonical[key] = key
+        canonical[to_camel(key)] = key
+    resolved = {}
+    for key, codon in selected_mutations.items():
+        if key not in canonical:
+            raise SequenceError(f"unknown restriction site {key!r}")
+        if canonical[key] in resolved:
+            raise SequenceError(f"restriction site {key!r} was selected twice")
+        resolved[canonical[key]] = codon
+
+    try:
+        primers = protocol_maker.primer_designer.design_custom_primers(resolved, options)
+    except ValueError as e:
+        raise SequenceError(str(e))
+    return _custom_primer_payload(primers, resolved)
+
+
+@shared_task(bind=True, ignore_result=False)
+def design_primers_task(self, job_id: str, sequence_idx: int, selected_mutations: dict):
+    """
+    Celery task to design custom primers for the user's selected mutations.
+
+    The outcome is published on the sequence's SSE channel (and stored with the
+    sequence's events, so a reload recovers it) and returned as the task result.
+    """
+    task_id = getattr(self.request, "id", None)
+    try:
+        payload = _design_selected_primers(job_id, sequence_idx, selected_mutations)
+    except Exception as e:
+        message = (
+            f"Primer design failed: {e}"
+            if isinstance(e, (SequenceError, ValueError))
+            else f"Primer design failed because of an unexpected internal error ({type(e).__name__})."
+        )
+        print(f"[ERROR] design_primers_task {job_id}:{sequence_idx}: {e!r}")
+        try:
+            publish_sse(
+                job_id=job_id,
+                sequence_idx=sequence_idx,
+                step="Primer Design",
+                message=message,
+                customPrimers={
+                    "status": "failure",
+                    "error": message,
+                    "taskId": task_id,
+                    "selectedMutations": [
+                        {"siteKey": to_camel(str(k)), "codonSequence": v}
+                        for k, v in sorted((selected_mutations or {}).items())
+                    ],
+                },
+            )
+        except Exception as pub_err:
+            print(f"Could not publish primer design failure: {pub_err}")
+        raise SequenceError(message)
+
     try:
         mutation_hash = get_mutation_hash(selected_mutations)
-        primers_cache_key = f"primers:{job_id}:{sequence_idx}:{mutation_hash}"
-        redis_client.set(primers_cache_key, json.dumps(primers), ex=3600)
+        redis_client.set(
+            f"primers:{job_id}:{sequence_idx}:{mutation_hash}",
+            json.dumps(payload),
+            ex=3600,
+        )
     except Exception as e:
-        print(f"Redis caching error for primers: {str(e)}")
-        # Continue execution even if caching fails
+        print(f"Redis caching error for primers: {str(e)}")  # cache only; result still delivered
 
-    return {
-        "jobId": job_id,
-        "sequenceIdx": sequence_idx,
-        "primers": primers,
-        "selectedMutations": selected_mutations,
-    }
+    result = {"status": "success", "taskId": task_id, **payload}
+    publish_sse(
+        job_id=job_id,
+        sequence_idx=sequence_idx,
+        step="Primer Design",
+        message="Custom primers designed for the selected mutations",
+        prog=100,
+        customPrimers=result,
+    )
+    return {"jobId": job_id, "sequenceIdx": sequence_idx, "result": result}

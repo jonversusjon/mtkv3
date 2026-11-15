@@ -22,6 +22,12 @@ export const groupUniqueCodons = (site) => {
   return groups;
 };
 
+// Options of one position group in the order the codon picker displays them
+// (alphabetical).  The selection value "<group>:<index>" indexes THIS order, so
+// everything that resolves a selection must use it, never insertion order.
+export const sortedCodonSequences = (group) =>
+  Object.keys(group || {}).sort((a, b) => a.localeCompare(b));
+
 export const getOriginalCodon = (site, position) => {
   if (
     !site.originalSequence ||

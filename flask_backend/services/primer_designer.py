@@ -280,98 +280,59 @@ class PrimerDesigner:
         send_update(message="Edge primers generated successfully", prog=100)
         return edge_primers
 
-    def design_custom_primers(self, selected_mutations):
+    def design_custom_primers(self, selected_mutations, mutation_options):
         """
         Design primers for a specific set of user-selected mutations.
 
         Args:
             selected_mutations: Dictionary mapping site keys to selected codon sequences
+            mutation_options: Dictionary mapping site keys to the List[Mutation]
+                options the analyzer produced for this very sequence
 
         Returns:
-            Dictionary containing designed primer pairs
+            List of MutationPrimerSet for the selection (same shape as the
+            recommended-primer path). Raises ValueError when a selection does not
+            match an option of this sequence or when no compatible primer set exists.
         """
-        # Convert selected mutations to Mutation objects
-        mutation_set = {}
-        for site_key, codon_sequence in selected_mutations.items():
-            mutation = self._get_mutation_by_codon_sequence(site_key, codon_sequence)
-            if mutation:
-                mutation_set[site_key] = mutation
-
-        # Create a MutationSet object
-        from flask_backend.models import MutationSet
-
-        mut_set = MutationSet(
-            alt_codons=mutation_set, compatibility=np.array([]), mut_primer_sets=[]
-        )
-
-        # Check compatibility
+        from flask_backend.services.mut_analyzer import MutationAnalyzer
         from flask_backend.services.mut_optimizer import MutationOptimizer
 
+        if not selected_mutations:
+            raise ValueError("no mutations were selected")
+
+        mutation_set = {}
+        for site_key, codon_sequence in selected_mutations.items():
+            if site_key not in mutation_options:
+                raise ValueError(f"unknown restriction site {site_key!r}")
+            mutation_set[site_key] = MutationAnalyzer.get_mutation_for_choice(
+                site_key, codon_sequence, mutation_options[site_key]
+            )
+
+        # Same construction as the recommended-primer path (protocol_maker).
         matrix = MutationOptimizer().create_compatibility_matrix(
             [
                 {"overhangs": {"overhang_options": mutation.overhang_options}}
                 for mutation in mutation_set.values()
             ]
         )
-        mut_set.compatibility = matrix.tolist()
+        collection = MutationSetCollection(
+            rs_keys=list(mutation_set.keys()),
+            sets=[
+                MutationSet(
+                    alt_codons=mutation_set, compatibility=matrix, mut_primer_sets=[]
+                )
+            ],
+        )
 
-        from flask_backend.models import MutationSetCollection
-
-        # Create the collection using the model's expected format
-        collection = MutationSetCollection()
-        collection.rs_keys = list(mutation_set.keys())
-        collection.sets = [mut_set]
-
-        mut_primer_set = self.design_mutation_primers(
+        primers = self.design_mutation_primers(
             collection,
             "CustomPrimer",
-            "one",
-            lambda _message=None,
-            _prog=None,
-            **_kwargs: None,  # Empty callback with named unused params
+            lambda *_args, **_kwargs: None,
+            batch_update_interval=1,
         )
-
-        return mut_primer_set
-
-    def _get_mutation_by_codon_sequence(self, site_key, codon_sequence):
-        """
-        Helper method to retrieve a Mutation object based on site key and codon sequence.
-
-        Args:
-            site_key: The restriction site key
-            codon_sequence: The selected codon sequence
-
-        Returns:
-            Mutation object if found, None otherwise
-        """
-        # Example implementation assuming mutation_options is stored in Redis:
-        from flask_backend.services.utils import redis_client
-
-        job_id = "current_job_id"  # Replace with actual job ID retrieval logic
-        sequence_idx = (
-            "current_sequence_idx"  # Replace with actual sequence index retrieval logic
-        )
-
-        cache_key = f"mutation_options:{job_id}:{sequence_idx}"
-        cached_options = redis_client.get(cache_key)
-
-        if cached_options:
-            # Handle both string and bytes responses
-            if isinstance(cached_options, bytes):
-                mutation_options = json.loads(cached_options.decode("utf-8"))
-            elif isinstance(cached_options, str):
-                mutation_options = json.loads(cached_options)
-            else:
-                # Handle other response types by converting to string first
-                mutation_options = json.loads(str(cached_options))
-            site_mutations = mutation_options.get(site_key, [])
-
-            for mutation in site_mutations:
-                for mut_codon in mutation.get("mutCodons", []):
-                    if (
-                        mut_codon.get("codon", {}).get("codonSequence")
-                        == codon_sequence
-                    ):
-                        return mutation
-
-        return None
+        if not primers:
+            raise ValueError(
+                "no compatible primer set exists for the selected mutations "
+                "(their overhangs conflict); choose different codons"
+            )
+        return primers

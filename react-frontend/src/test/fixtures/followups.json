@@ -1,0 +1,600 @@
+{
+ "designResult": {
+  "primerSet": {
+   "mutPrimerPairs": [
+    {
+     "forward": {
+      "bindingRegion": "GACTTCCGCGCCCCGC",
+      "gcContent": 0.812,
+      "length": 25,
+      "name": "CustomPrimer_forward",
+      "sequence": "GAACGTCTCGACTTCCGCGCCCCGC",
+      "tm": 56.19
+     },
+     "mutation": {
+      "contextRsIndices": [
+       30,
+       31,
+       32,
+       33,
+       34,
+       35
+      ],
+      "enzyme": "BsaI",
+      "firstMutIdx": 35,
+      "lastMutIdx": 35,
+      "mutCodons": [
+       {
+        "codon": {
+         "aminoAcid": "T",
+         "codonSequence": "ACT",
+         "contextPosition": 33,
+         "rsOverlap": [
+          0,
+          1,
+          2
+         ],
+         "usage": 13.1
+        },
+        "nthCodonInRs": 2
+       }
+      ],
+      "mutCodonsContextStartIdx": 33,
+      "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACTTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "mutIndicesCodon": [
+       2
+      ],
+      "mutIndicesRs": [
+       2
+      ],
+      "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "overhangOptions": [
+       {
+        "bottomOverhang": "AGTC",
+        "overhangStartIndex": 32,
+        "topOverhang": "GACT"
+       },
+       {
+        "bottomOverhang": "AAGT",
+        "overhangStartIndex": 33,
+        "topOverhang": "ACTT"
+       },
+       {
+        "bottomOverhang": "GAAG",
+        "overhangStartIndex": 34,
+        "topOverhang": "CTTC"
+       },
+       {
+        "bottomOverhang": "GGAA",
+        "overhangStartIndex": 35,
+        "topOverhang": "TTCC"
+       }
+      ],
+      "recognitionSeq": "GAGACC"
+     },
+     "position": 35,
+     "reverse": {
+      "bindingRegion": "GAAGTCTCCAGGAAGGCGG",
+      "gcContent": 0.632,
+      "length": 28,
+      "name": "CustomPrimer_reverse",
+      "sequence": "GAACGTCTCGAAGTCTCCAGGAAGGCGG",
+      "tm": 55.41
+     },
+     "site": "mutation_480"
+    },
+    {
+     "forward": {
+      "bindingRegion": "AGACTTCCGCGCCCCGC",
+      "gcContent": 0.765,
+      "length": 26,
+      "name": "CustomPrimer_forward",
+      "sequence": "GAACGTCTCAGACTTCCGCGCCCCGC",
+      "tm": 56.7
+     },
+     "mutation": {
+      "contextRsIndices": [
+       30,
+       31,
+       32,
+       33,
+       34,
+       35
+      ],
+      "enzyme": "BsaI",
+      "firstMutIdx": 35,
+      "lastMutIdx": 35,
+      "mutCodons": [
+       {
+        "codon": {
+         "aminoAcid": "T",
+         "codonSequence": "ACT",
+         "contextPosition": 33,
+         "rsOverlap": [
+          0,
+          1,
+          2
+         ],
+         "usage": 13.1
+        },
+        "nthCodonInRs": 2
+       }
+      ],
+      "mutCodonsContextStartIdx": 33,
+      "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACTTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "mutIndicesCodon": [
+       2
+      ],
+      "mutIndicesRs": [
+       2
+      ],
+      "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "overhangOptions": [
+       {
+        "bottomOverhang": "AGTC",
+        "overhangStartIndex": 32,
+        "topOverhang": "GACT"
+       },
+       {
+        "bottomOverhang": "AAGT",
+        "overhangStartIndex": 33,
+        "topOverhang": "ACTT"
+       },
+       {
+        "bottomOverhang": "GAAG",
+        "overhangStartIndex": 34,
+        "topOverhang": "CTTC"
+       },
+       {
+        "bottomOverhang": "GGAA",
+        "overhangStartIndex": 35,
+        "topOverhang": "TTCC"
+       }
+      ],
+      "recognitionSeq": "GAGACC"
+     },
+     "position": 35,
+     "reverse": {
+      "bindingRegion": "AAGTCTCCAGGAAGGCGGG",
+      "gcContent": 0.632,
+      "length": 28,
+      "name": "CustomPrimer_reverse",
+      "sequence": "GAACGTCTCAAGTCTCCAGGAAGGCGGG",
+      "tm": 55.41
+     },
+     "site": "mutation_480"
+    },
+    {
+     "forward": {
+      "bindingRegion": "CTTCCGCGCCCCGCAAC",
+      "gcContent": 0.765,
+      "length": 26,
+      "name": "CustomPrimer_forward",
+      "sequence": "GAACGTCTCCTTCCGCGCCCCGCAAC",
+      "tm": 56.7
+     },
+     "mutation": {
+      "contextRsIndices": [
+       30,
+       31,
+       32,
+       33,
+       34,
+       35
+      ],
+      "enzyme": "BsaI",
+      "firstMutIdx": 35,
+      "lastMutIdx": 35,
+      "mutCodons": [
+       {
+        "codon": {
+         "aminoAcid": "T",
+         "codonSequence": "ACT",
+         "contextPosition": 33,
+         "rsOverlap": [
+          0,
+          1,
+          2
+         ],
+         "usage": 13.1
+        },
+        "nthCodonInRs": 2
+       }
+      ],
+      "mutCodonsContextStartIdx": 33,
+      "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACTTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "mutIndicesCodon": [
+       2
+      ],
+      "mutIndicesRs": [
+       2
+      ],
+      "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "overhangOptions": [
+       {
+        "bottomOverhang": "AGTC",
+        "overhangStartIndex": 32,
+        "topOverhang": "GACT"
+       },
+       {
+        "bottomOverhang": "AAGT",
+        "overhangStartIndex": 33,
+        "topOverhang": "ACTT"
+       },
+       {
+        "bottomOverhang": "GAAG",
+        "overhangStartIndex": 34,
+        "topOverhang": "CTTC"
+       },
+       {
+        "bottomOverhang": "GGAA",
+        "overhangStartIndex": 35,
+        "topOverhang": "TTCC"
+       }
+      ],
+      "recognitionSeq": "GAGACC"
+     },
+     "position": 35,
+     "reverse": {
+      "bindingRegion": "CGGAAGTCTCCAGGAAGGC",
+      "gcContent": 0.632,
+      "length": 28,
+      "name": "CustomPrimer_reverse",
+      "sequence": "GAACGTCTCCGGAAGTCTCCAGGAAGGC",
+      "tm": 55.41
+     },
+     "site": "mutation_480"
+    },
+    {
+     "forward": {
+      "bindingRegion": "ACTTCCGCGCCCCGCAAC",
+      "gcContent": 0.722,
+      "length": 27,
+      "name": "CustomPrimer_forward",
+      "sequence": "GAACGTCTCACTTCCGCGCCCCGCAAC",
+      "tm": 57.16
+     },
+     "mutation": {
+      "contextRsIndices": [
+       30,
+       31,
+       32,
+       33,
+       34,
+       35
+      ],
+      "enzyme": "BsaI",
+      "firstMutIdx": 35,
+      "lastMutIdx": 35,
+      "mutCodons": [
+       {
+        "codon": {
+         "aminoAcid": "T",
+         "codonSequence": "ACT",
+         "contextPosition": 33,
+         "rsOverlap": [
+          0,
+          1,
+          2
+         ],
+         "usage": 13.1
+        },
+        "nthCodonInRs": 2
+       }
+      ],
+      "mutCodonsContextStartIdx": 33,
+      "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACTTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "mutIndicesCodon": [
+       2
+      ],
+      "mutIndicesRs": [
+       2
+      ],
+      "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+      "overhangOptions": [
+       {
+        "bottomOverhang": "AGTC",
+        "overhangStartIndex": 32,
+        "topOverhang": "GACT"
+       },
+       {
+        "bottomOverhang": "AAGT",
+        "overhangStartIndex": 33,
+        "topOverhang": "ACTT"
+       },
+       {
+        "bottomOverhang": "GAAG",
+        "overhangStartIndex": 34,
+        "topOverhang": "CTTC"
+       },
+       {
+        "bottomOverhang": "GGAA",
+        "overhangStartIndex": 35,
+        "topOverhang": "TTCC"
+       }
+      ],
+      "recognitionSeq": "GAGACC"
+     },
+     "position": 35,
+     "reverse": {
+      "bindingRegion": "GGAAGTCTCCAGGAAGGCG",
+      "gcContent": 0.632,
+      "length": 28,
+      "name": "CustomPrimer_reverse",
+      "sequence": "GAACGTCTCGGAAGTCTCCAGGAAGGCG",
+      "tm": 55.41
+     },
+     "site": "mutation_480"
+    }
+   ]
+  },
+  "selectedMutations": [
+   {
+    "codonSequence": "ACT",
+    "siteKey": "mutation480"
+   }
+  ],
+  "status": "success",
+  "taskId": "design-2"
+ },
+ "jobId": "375c0d4822ca43dda9a7917555e0ad55",
+ "mutationEvent": {
+  "jobId": "375c0d4822ca43dda9a7917555e0ad55",
+  "message": "Mutation analysis complete",
+  "mutationOptions": {
+   "mutation480": [
+    {
+     "contextRsIndices": [
+      30,
+      31,
+      32,
+      33,
+      34,
+      35
+     ],
+     "enzyme": "BsaI",
+     "firstMutIdx": 32,
+     "lastMutIdx": 32,
+     "mutCodons": [
+      {
+       "codon": {
+        "aminoAcid": "E",
+        "codonSequence": "GAA",
+        "contextPosition": 30,
+        "rsOverlap": [
+         0,
+         1,
+         2
+        ],
+        "usage": 29.0
+       },
+       "nthCodonInRs": 1
+      }
+     ],
+     "mutCodonsContextStartIdx": 30,
+     "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAAACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "mutIndicesCodon": [
+      2
+     ],
+     "mutIndicesRs": [
+      2
+     ],
+     "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "overhangOptions": [
+      {
+       "bottomOverhang": "TTCC",
+       "overhangStartIndex": 29,
+       "topOverhang": "GGAA"
+      },
+      {
+       "bottomOverhang": "TTTC",
+       "overhangStartIndex": 30,
+       "topOverhang": "GAAA"
+      },
+      {
+       "bottomOverhang": "GTTT",
+       "overhangStartIndex": 31,
+       "topOverhang": "AAAC"
+      },
+      {
+       "bottomOverhang": "GGTT",
+       "overhangStartIndex": 32,
+       "topOverhang": "AACC"
+      }
+     ],
+     "recognitionSeq": "GAGACC"
+    },
+    {
+     "contextRsIndices": [
+      30,
+      31,
+      32,
+      33,
+      34,
+      35
+     ],
+     "enzyme": "BsaI",
+     "firstMutIdx": 35,
+     "lastMutIdx": 35,
+     "mutCodons": [
+      {
+       "codon": {
+        "aminoAcid": "T",
+        "codonSequence": "ACT",
+        "contextPosition": 33,
+        "rsOverlap": [
+         0,
+         1,
+         2
+        ],
+        "usage": 13.1
+       },
+       "nthCodonInRs": 2
+      }
+     ],
+     "mutCodonsContextStartIdx": 33,
+     "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACTTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "mutIndicesCodon": [
+      2
+     ],
+     "mutIndicesRs": [
+      2
+     ],
+     "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "overhangOptions": [
+      {
+       "bottomOverhang": "AGTC",
+       "overhangStartIndex": 32,
+       "topOverhang": "GACT"
+      },
+      {
+       "bottomOverhang": "AAGT",
+       "overhangStartIndex": 33,
+       "topOverhang": "ACTT"
+      },
+      {
+       "bottomOverhang": "GAAG",
+       "overhangStartIndex": 34,
+       "topOverhang": "CTTC"
+      },
+      {
+       "bottomOverhang": "GGAA",
+       "overhangStartIndex": 35,
+       "topOverhang": "TTCC"
+      }
+     ],
+     "recognitionSeq": "GAGACC"
+    },
+    {
+     "contextRsIndices": [
+      30,
+      31,
+      32,
+      33,
+      34,
+      35
+     ],
+     "enzyme": "BsaI",
+     "firstMutIdx": 35,
+     "lastMutIdx": 35,
+     "mutCodons": [
+      {
+       "codon": {
+        "aminoAcid": "T",
+        "codonSequence": "ACA",
+        "contextPosition": 33,
+        "rsOverlap": [
+         0,
+         1,
+         2
+        ],
+        "usage": 15.1
+       },
+       "nthCodonInRs": 2
+      }
+     ],
+     "mutCodonsContextStartIdx": 33,
+     "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACATCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "mutIndicesCodon": [
+      2
+     ],
+     "mutIndicesRs": [
+      2
+     ],
+     "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "overhangOptions": [
+      {
+       "bottomOverhang": "TGTC",
+       "overhangStartIndex": 32,
+       "topOverhang": "GACA"
+      },
+      {
+       "bottomOverhang": "ATGT",
+       "overhangStartIndex": 33,
+       "topOverhang": "ACAT"
+      },
+      {
+       "bottomOverhang": "GATG",
+       "overhangStartIndex": 34,
+       "topOverhang": "CATC"
+      },
+      {
+       "bottomOverhang": "GGAT",
+       "overhangStartIndex": 35,
+       "topOverhang": "ATCC"
+      }
+     ],
+     "recognitionSeq": "GAGACC"
+    },
+    {
+     "contextRsIndices": [
+      30,
+      31,
+      32,
+      33,
+      34,
+      35
+     ],
+     "enzyme": "BsaI",
+     "firstMutIdx": 35,
+     "lastMutIdx": 35,
+     "mutCodons": [
+      {
+       "codon": {
+        "aminoAcid": "T",
+        "codonSequence": "ACG",
+        "contextPosition": 33,
+        "rsOverlap": [
+         0,
+         1,
+         2
+        ],
+        "usage": 6.1
+       },
+       "nthCodonInRs": 2
+      }
+     ],
+     "mutCodonsContextStartIdx": 33,
+     "mutContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACGTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "mutIndicesCodon": [
+      2
+     ],
+     "mutIndicesRs": [
+      2
+     ],
+     "nativeContext": "GCCGAGCGCGCCGGGGTGCCCGCCTTCCTGGAGACCTCCGCGCCCCGCAACCTCCCCTTCTACGAG",
+     "overhangOptions": [
+      {
+       "bottomOverhang": "CGTC",
+       "overhangStartIndex": 32,
+       "topOverhang": "GACG"
+      },
+      {
+       "bottomOverhang": "ACGT",
+       "overhangStartIndex": 33,
+       "topOverhang": "ACGT"
+      },
+      {
+       "bottomOverhang": "GACG",
+       "overhangStartIndex": 34,
+       "topOverhang": "CGTC"
+      },
+      {
+       "bottomOverhang": "GGAC",
+       "overhangStartIndex": 35,
+       "topOverhang": "GTCC"
+      }
+     ],
+     "recognitionSeq": "GAGACC"
+    }
+   ]
+  },
+  "progress": 100,
+  "sequenceIdx": 0,
+  "step": "Mutation Analysis",
+  "stepProgress": 100
+ },
+ "selection": {
+  "mutation480": "ACT"
+ }
+}

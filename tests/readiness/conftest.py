@@ -79,7 +79,8 @@ def caller_state_untouched():
     """Guard: no test may create, modify or delete the caller checkout's existing
     logs or bundle.  Runs on teardown whether the test passed or failed."""
     watched = [REPO / "flask_backend" / "log_utils" / "logs",
-               REPO / "flask_backend" / "static" / "react"]
+               REPO / "flask_backend" / "static" / "react",
+               REPO / "flask_backend" / "static" / "exports"]
     before = _snapshot(watched)
     yield
     assert _snapshot(watched) == before, "test mutated caller logs/bundle"
@@ -149,21 +150,31 @@ def lifecycle(monkeypatch, tmp_path):
     parent_results = {}
 
     class FakeCelery:
-        """Stands in for the broker: runs the real parent task inline."""
+        """Stands in for the broker: runs the real tasks inline."""
+
+        fail_dispatch = False
 
         def send_task(self, name, args=None, **kw):
-            assert name == "flask_backend.celery_tasks.generate_protocol_task"
-            task_id = f"parent-{len(sent) + 1}"
+            if self.fail_dispatch:
+                raise ConnectionError("broker down")
+            tasks_by_name = {
+                "flask_backend.celery_tasks.generate_protocol_task": ("parent", celery_tasks.generate_protocol_task),
+                "flask_backend.celery_tasks.design_primers_task": ("design", celery_tasks.design_primers_task),
+            }
+            assert name in tasks_by_name, name
+            kind, task = tasks_by_name[name]
+            task_id = f"{kind}-{len(sent) + 1}"
             sent.append((name, args))
-            parent_results[task_id] = celery_tasks.generate_protocol_task.apply(args=args)
+            parent_results[task_id] = task.apply(args=args, task_id=task_id)
             return SimpleNamespace(id=task_id)
 
         def AsyncResult(self, task_id):
             r = parent_results[task_id]
             return SimpleNamespace(state=r.state, result=r.result, info=r.result)
 
-    app.extensions["celery"] = FakeCelery()
+    fake_celery = FakeCelery()
+    app.extensions["celery"] = fake_celery
     yield SimpleNamespace(app=app, client=app.test_client(), redis=redis_fake, sse=sse_fake,
-                          sent=sent, tasks=celery_tasks, job_state=job_state)
+                          sent=sent, tasks=celery_tasks, job_state=job_state, celery=fake_celery)
     job_state.set_client(None)
     _close_log_handlers()

@@ -162,7 +162,7 @@ const DisplayMessage = ({ message, timestamp }) => (
 );
 
 // Tab Content Component
-const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
+const TabContent = ({ stepName, messages, activeStep, sseData, callouts, jobId, sequenceIdx, onPrimersDesigned }) => {
   // Filter messages relevant to this step
   const stepMessages = Array.isArray(messages)
     ? messages.filter((m) => m.step === stepName).map((m) => m.message)
@@ -232,6 +232,9 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
           <MutationExplorer
             stepSseData={stepSseData}
             selectedMutationSetIndex={selectedMutationSetIndex || 0}
+            jobId={jobId}
+            sequenceIdx={sequenceIdx}
+            onPrimersDesigned={onPrimersDesigned}
           />
         );
 
@@ -239,7 +242,8 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
         if (
           stepSseData.primers ||
           stepSseData.recommended ||
-          stepSseData.custom_primers
+          stepSseData.custom_primers ||
+          stepSseData.customPrimersList?.length > 0
         ) {
           return <PrimerExplorer stepSseData={stepSseData} />;
         } else if (
@@ -506,7 +510,7 @@ const TabContent = ({ stepName, messages, activeStep, sseData, callouts }) => {
 
 // Main ProtocolTracker Component
 // eslint-disable-next-line no-unused-vars
-const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
+const ProtocolTracker = ({ steps, messages, callouts, sseData, jobId, sequenceIdx, onPrimersDesigned }) => {
   // Filter steps by status
   const completedSteps = steps.filter((step) => step.status === "completed");
   const activeSteps = steps.filter((step) => step.status === "active");
@@ -641,6 +645,9 @@ const ProtocolTracker = ({ steps, messages, callouts, sseData }) => {
             activeStep={activeSteps.find((step) => step.name === activeTab)}
             sseData={sseData || {}}
             callouts={stepCallouts[activeTab] || []}
+            jobId={jobId}
+            sequenceIdx={sequenceIdx}
+            onPrimersDesigned={onPrimersDesigned}
           />
         </div>
       )}

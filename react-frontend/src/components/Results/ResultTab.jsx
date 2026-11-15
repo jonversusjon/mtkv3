@@ -174,6 +174,15 @@ const ResultTab = ({
           }
         });
         
+        // Every custom primer outcome (success or failure) is kept, de-duplicated by
+        // task id, so repeated SSE/recovery/poll deliveries show one entry each.
+        if (event.customPrimers && typeof event.customPrimers === "object") {
+          const list = (sseData[stepName].customPrimersList =
+            sseData[stepName].customPrimersList || []);
+          const tid = event.customPrimers.taskId;
+          if (!tid || !list.some((c) => c.taskId === tid)) list.push(event.customPrimers);
+        }
+
         // Set timestamp for step data
         sseData[stepName].timestamp = event.timestamp || event.clientTimestamp || Date.now();
 
@@ -398,6 +407,9 @@ const ResultTab = ({
             messages={protocolMessages}
             callouts={protocolCallouts}
             sseData={protocolSseData}
+            jobId={jobId}
+            sequenceIdx={sequenceIdx}
+            onPrimersDesigned={processSseEvent}
           />
         </div>
       )}
