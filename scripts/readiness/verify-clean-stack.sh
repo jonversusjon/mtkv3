@@ -179,7 +179,16 @@ cleanup() {
     echo "leftover volumes -> $(docker volume ls -q --filter "label=com.docker.compose.project=$PROJ" | wc -l) / dev $(docker volume ls -q --filter "label=com.docker.compose.project=$DEVPROJ" | wc -l)"
     echo "leftover networks -> $(docker network ls -q --filter "label=com.docker.compose.project=$PROJ" | wc -l) / dev $(docker network ls -q --filter "label=com.docker.compose.project=$DEVPROJ" | wc -l)"
   } >> "$OUT/logs/teardown.log" 2>&1
-  case "$TMP" in "${TMPDIR:-/tmp}"/mtkready-*) rm -rf -- "$TMP" ;; esac
+  case "$TMP" in
+    "${TMPDIR:-/tmp}"/mtkready-*)
+      if ! rm -rf -- "$TMP" 2>/dev/null; then
+        # containers running as root can leave root-owned files in a bind-mounted checkout: remove them the same way
+        printf '+ docker run --rm -v %s:/t node:22-alpine rm -rf /t/checkout\n' "$TMP" >> "$CMDS"
+        docker run --rm -v "$TMP":/t node:22-alpine rm -rf /t/checkout >> "$OUT/logs/teardown.log" 2>&1
+        rm -rf -- "$TMP"
+      fi
+      echo "temp checkout removed -> $([ -e "$TMP" ] && echo NO || echo yes)" >> "$OUT/logs/teardown.log" ;;
+  esac
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
