@@ -282,6 +282,20 @@ def test_export_round_trip_matches_the_selected_result(submitted, tmp_path, monk
     assert len(table) - 1 == 2 * len(pairs) > 0
 
 
+def test_export_quoting_round_trips_through_the_downloaded_file(exports):
+    lc, target = exports
+    rows = [['"leading', "ACGT", ""], ['emb"edded', "TTGA", 12], ['"both"', "GG", "7"],
+            ["plain", "CC", ""], ["a,b;c", "AT", 3]]
+    resp = lc.client.post("/api/export", json={"primers": rows})
+    assert resp.status_code == 200, resp.get_json()
+    dl = lc.client.get(resp.get_json()["download_url"])
+    raw = dl.get_data(as_text=True)
+    assert raw.startswith("Primer Name\tSequence\tAmplicon\n") and "\r" not in raw
+    table = parse_tsv(raw)
+    assert table[0] == ["Primer Name", "Sequence", "Amplicon"]
+    assert table[1:] == [[n, s, str(a)] for n, s, a in rows]
+
+
 def test_export_does_not_depend_on_cwd_or_touch_the_checkout(exports):
     lc, target = exports
     resp = lc.client.post("/api/export", json={"primers": [["p1", "ACGT", 4]]})

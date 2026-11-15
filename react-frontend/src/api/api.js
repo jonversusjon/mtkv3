@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "../config/config.js";
+import { API_BASE_URL, API_ORIGIN } from "../config/config.js";
 
 // Bounded waits: no browser request may hang forever.
 export const REQUEST_TIMEOUT_MS = 30000;
@@ -150,8 +150,19 @@ export const exportPrimers = async (rows) => {
     throw new Error(body?.error || `Export was rejected (HTTP ${response.status}).`);
   }
   const url = body?.download_url;
-  if (typeof url !== "string" || !url.startsWith("/")) {
+  if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//")) {
     throw new Error("The server created the export but did not return a download location.");
+  }
+  // The returned URL is root-relative to the API that created the file: resolve it
+  // against the configured API origin (same-origin/proxy default stays relative).
+  let target = url;
+  if (API_ORIGIN) {
+    const origin = new URL(API_ORIGIN, globalThis.location?.href).origin;
+    const resolved = new URL(url, origin);
+    if (resolved.origin !== origin) {
+      throw new Error("The server returned a download location outside the API; nothing was downloaded.");
+    }
+    target = resolved.href;
   }
 
   const controller = new AbortController();
@@ -159,7 +170,7 @@ export const exportPrimers = async (rows) => {
   try {
     let file;
     try {
-      file = await fetch(url, { signal: controller.signal });
+      file = await fetch(target, { signal: controller.signal });
     } catch (err) {
       throw new Error(
         err?.name === "AbortError"

@@ -8,7 +8,10 @@ const DEFAULT_ORIGIN = "";
 
 export const SSE_BASE_URL = (import.meta.env.VITE_SSE_URL ?? DEFAULT_ORIGIN) + "/sse";
 
-export const API_BASE_URL = (import.meta.env.VITE_API_URL ?? DEFAULT_ORIGIN) + "/api";
+// Origin the API lives on ("" = same origin / vite proxy).
+export const API_ORIGIN = import.meta.env.VITE_API_URL ?? DEFAULT_ORIGIN;
+
+export const API_BASE_URL = API_ORIGIN + "/api";
 
 // How often the browser asks the server for a job's status, and how long it waits
 // for every sequence to reach a terminal state before reporting a timeout.

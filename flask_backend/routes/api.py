@@ -7,6 +7,7 @@ from flask import (
     stream_with_context,
 )
 from functools import wraps
+import csv
 import os
 import re
 import time
@@ -305,10 +306,10 @@ def export_protocol():
     export_dir = _export_dir()
     try:
         os.makedirs(export_dir, exist_ok=True)
-        with open(os.path.join(export_dir, filename), "w", newline="") as f:
-            f.write("Primer Name\tSequence\tAmplicon\n")
-            for row in rows:
-                f.write("\t".join(row) + "\n")
+        with open(os.path.join(export_dir, filename), "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter="\t", lineterminator="\n")
+            writer.writerow(["Primer Name", "Sequence", "Amplicon"])
+            writer.writerows(rows)
     except OSError as e:
         print(e)
         return jsonify({"error": "Failed to create export file"}), 500

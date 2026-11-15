@@ -153,6 +153,7 @@ describe("designPrimers", () => {
 });
 
 describe("exportPrimers", () => {
+  afterEach(() => vi.unstubAllEnvs());
   const file = (text, type = "text/tab-separated-values; charset=utf-8", status = 200) => ({
     ok: status < 400, status, headers: { get: () => type }, text: () => Promise.resolve(text),
     json: () => Promise.reject(new Error("not json")),
@@ -169,6 +170,33 @@ describe("exportPrimers", () => {
     expect(String(fetchMock.mock.calls[1][0])).toBe("/api/export/primers_1_abcdef12.tsv");
     expect(out.filename).toBe("primers_1_abcdef12.tsv");
     expect(out.text).toBe(HEAD + "p1\tACGT\t\n");
+  });
+
+  it("fetches the file from the configured cross-origin API, not the frontend origin", async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_API_URL", "https://api.example.test");
+    const { exportPrimers: exp } = await import("./api");
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(reply({ download_url: "/api/export/primers_1_abcdef12.tsv" }))
+      .mockReturnValueOnce(Promise.resolve(file(HEAD + "p1\tACGT\t\n")));
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await exp([["p1", "ACGT", ""]]);
+    vi.unstubAllEnvs();
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.example.test/api/export");
+    expect(String(fetchMock.mock.calls[1][0])).toBe("https://api.example.test/api/export/primers_1_abcdef12.tsv");
+    expect(out.filename).toBe("primers_1_abcdef12.tsv");
+    expect(out.text).toBe(HEAD + "p1\tACGT\t\n");
+  });
+
+  it("refuses a protocol-relative download location that would leave the API origin", async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_API_URL", "https://api.example.test");
+    const { exportPrimers: exp } = await import("./api");
+    const fetchMock = vi.fn().mockReturnValueOnce(reply({ download_url: "//evil.test/x.tsv" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(exp([["a", "A", ""]])).rejects.toThrow(/download location/);
+    vi.unstubAllEnvs();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces export rejection, non-TSV bodies and failed downloads", async () => {
