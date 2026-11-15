@@ -92,7 +92,7 @@ The run, in order:
    `PLAYWRIGHT_BROWSERS_PATH` are run-owned and deleted at teardown; nothing goes into `~/.npm` or `~/.cache`), then
    checks the Chromium shared libraries with `ldd` (see Prerequisites);
 3. builds the images with `--no-cache` and starts an isolated Compose project (`mtkready-<id>`: its own Redis, worker,
-   free localhost ports, its own export files) — the real Flask app, real Redis and a real Celery worker; no eager
+   Docker-assigned localhost ports (`MTK_*_PORT=0`, read back with `docker compose port` after start, so no two services can collide; the resolved ports are in `environment.json` and `commands.txt`), its own export files) — the real Flask app, real Redis and a real Celery worker; no eager
    mode, no mocked API. The worker must answer a bounded `celery inspect ping` (at most 30 attempts; every attempt's
    output is in `logs/worker-ping.txt`);
 4. runs Playwright/Chromium (`tests/readiness/browser`) against it: form/JS/CSS load with MIME and body validation

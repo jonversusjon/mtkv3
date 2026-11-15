@@ -108,6 +108,9 @@ for name in ("docker-compose.yaml", "docker-compose.dev.yaml"):
     need("${MTK_BACKEND_PORT" in t and "${MTK_REDIS_PORT" in t, f"{name}: host ports are parameterised (isolated runs)")
     need(not re.search(r'-\s*"(5000:5000|6379:6379|3000:3000)"', t), f"{name}: no hard-coded host ports")
 need("${MTK_FRONTEND_PORT" in (root / "docker-compose.dev.yaml").read_text(), "dev compose: frontend port parameterised")
+runner = (root / "scripts/readiness/verify-clean-stack.sh").read_text()
+need(("free_" + "port") not in runner and ("s." + "bind") not in runner, "runner never picks ports before binding (no bind-to-zero/close allocation)")
+need("MTK_BACKEND_PORT=0" in runner and "resolve_published_port" in runner and (root / "scripts/readiness/ports.sh").exists(), "runner uses Docker-assigned ports read back with compose port")
 need("- .:/app" not in (root / "docker-compose.yaml").read_text(), "default compose has no source bind mount over the built bundle")
 
 readme = (root / "README.md").read_text()
@@ -177,13 +180,13 @@ CHK="$TMP/checkout"
 export npm_config_cache="$TMP/npm-cache"
 export PLAYWRIGHT_BROWSERS_PATH="$TMP/pw-browsers"
 export PLAYWRIGHT_SKIP_BROWSER_GC=1
-free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])'; }
-BACKEND_PORT="$(free_port)"; REDIS_PORT="$(free_port)"
-DEV_BACKEND_PORT="$(free_port)"; DEV_REDIS_PORT="$(free_port)"; DEV_FRONT_PORT="$(free_port)"
-BASE="http://127.0.0.1:$BACKEND_PORT"
+# Host ports are assigned atomically by Docker (MTK_*_PORT=0 -> "127.0.0.1:0:<container port>"); the harness never
+# picks or pre-releases a port.  The real ports are read back with `docker compose port` after the services start.
+. "$(dirname "${BASH_SOURCE[0]}")/ports.sh"
+BACKEND_PORT=""; REDIS_PORT=""; DEV_BACKEND_PORT=""; DEV_REDIS_PORT=""; DEV_FRONT_PORT=""; BASE=""
 
-compose()    { MTK_BACKEND_PORT=$BACKEND_PORT MTK_REDIS_PORT=$REDIS_PORT docker compose -p "$PROJ" -f docker-compose.yaml "$@"; }
-devcompose() { MTK_BACKEND_PORT=$DEV_BACKEND_PORT MTK_REDIS_PORT=$DEV_REDIS_PORT MTK_FRONTEND_PORT=$DEV_FRONT_PORT docker compose -p "$DEVPROJ" -f docker-compose.dev.yaml "$@"; }
+compose()    { MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 docker compose -p "$PROJ" -f docker-compose.yaml "$@"; }
+devcompose() { MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 MTK_FRONTEND_PORT=0 docker compose -p "$DEVPROJ" -f docker-compose.dev.yaml "$@"; }
 
 # ---- cleanup: ONLY resources created by this run ---------------------------------------------
 cleaned=0
@@ -263,10 +266,17 @@ printf '%s\n' "${MISSING_LIBS:-no missing shared libraries}" > "$OUT/logs/chromi
 [ -z "$MISSING_LIBS" ] || infra_fail "Chromium system libraries missing on this host (install the prerequisite packages from the README): $(tr '\n' ';' <<<"$MISSING_LIBS")"
 
 # ---- 3. isolated stack, fresh build -------------------------------------------------------
-printf '+ MTK_BACKEND_PORT=%s MTK_REDIS_PORT=%s docker compose -p %s -f docker-compose.yaml build --no-cache\n' "$BACKEND_PORT" "$REDIS_PORT" "$PROJ" >> "$CMDS"
+printf '+ MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 docker compose -p %s -f docker-compose.yaml build --no-cache\n' "$PROJ" >> "$CMDS"
 compose build --no-cache >> "$OUT/logs/build.log" 2>&1 || infra_fail "image build failed (see logs/build.log)"
-printf '+ MTK_BACKEND_PORT=%s MTK_REDIS_PORT=%s docker compose -p %s -f docker-compose.yaml up -d\n' "$BACKEND_PORT" "$REDIS_PORT" "$PROJ" >> "$CMDS"
+printf '+ MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 docker compose -p %s -f docker-compose.yaml up -d\n' "$PROJ" >> "$CMDS"
 compose up -d >> "$OUT/logs/up.log" 2>&1 || infra_fail "compose up failed (see logs/up.log)"
+# discover the Docker-assigned host ports (bounded; malformed/missing output is an honest infrastructure failure)
+printf '+ docker compose -p %s -f docker-compose.yaml port backend 5000 ; ... port redis 6379\n' "$PROJ" >> "$CMDS"
+BACKEND_PORT="$(resolve_published_port compose backend 5000 2>>"$OUT/logs/port-discovery.log")" || infra_fail "backend host port not discoverable (see logs/port-discovery.log)"
+REDIS_PORT="$(resolve_published_port compose redis 6379 2>>"$OUT/logs/port-discovery.log")" || infra_fail "redis host port not discoverable (see logs/port-discovery.log)"
+[ "$BACKEND_PORT" != "$REDIS_PORT" ] || infra_fail "backend and redis resolved to the same host port $BACKEND_PORT"
+BASE="http://127.0.0.1:$BACKEND_PORT"
+printf '%s\n' "resolved: backend=$BASE redis=127.0.0.1:$REDIS_PORT" >> "$CMDS"
 
 wait_http() {  # url seconds
   local end=$(( $(date +%s) + $2 ))
@@ -347,8 +357,18 @@ PW_EXIT=$?
 cp "$BROWSER_DIR/package-lock.json" "$OUT/playwright-package-lock.json" 2>/dev/null || true
 
 # ---- 6. separate development launch smoke ---------------------------------------------------
-printf '+ MTK_BACKEND_PORT=%s MTK_REDIS_PORT=%s MTK_FRONTEND_PORT=%s docker compose -p %s -f docker-compose.dev.yaml up -d --build\n' "$DEV_BACKEND_PORT" "$DEV_REDIS_PORT" "$DEV_FRONT_PORT" "$DEVPROJ" >> "$CMDS"
+printf '+ MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 MTK_FRONTEND_PORT=0 docker compose -p %s -f docker-compose.dev.yaml up -d --build\n' "$DEVPROJ" >> "$CMDS"
+DEV_PORTS_OK=0
 if devcompose up -d --build >> "$OUT/logs/dev-up.log" 2>&1; then
+  printf '+ docker compose -p %s -f docker-compose.dev.yaml port backend 5000 ; ... port redis 6379 ; ... port frontend 3000\n' "$DEVPROJ" >> "$CMDS"
+  if DEV_BACKEND_PORT="$(resolve_published_port devcompose backend 5000 2>>"$OUT/logs/dev-port-discovery.log")" \
+     && DEV_REDIS_PORT="$(resolve_published_port devcompose redis 6379 2>>"$OUT/logs/dev-port-discovery.log")" \
+     && DEV_FRONT_PORT="$(resolve_published_port devcompose frontend 3000 2>>"$OUT/logs/dev-port-discovery.log")"; then
+    DEV_PORTS_OK=1
+    printf '%s\n' "resolved dev: backend=127.0.0.1:$DEV_BACKEND_PORT redis=127.0.0.1:$DEV_REDIS_PORT frontend=127.0.0.1:$DEV_FRONT_PORT" >> "$CMDS"
+  fi
+fi
+if [ "$DEV_PORTS_OK" = 1 ]; then
   DEVURL="http://127.0.0.1:$DEV_FRONT_PORT"; DEVAPI="http://127.0.0.1:$DEV_BACKEND_PORT"
   if wait_http "$DEVURL/" 300 && wait_http "$DEVAPI/api/species" 120; then
     HDR="$(curl -fsS -D - -o "$OUT/logs/dev-index.html" "$DEVURL/")"
@@ -369,17 +389,23 @@ if devcompose up -d --build >> "$OUT/logs/dev-up.log" 2>&1; then
     for i in dev.vite-main-js dev.api-proxy dev.backend-species; do addcheck $i FAIL "dev stack did not become ready"; done
   fi
 else
-  addcheck dev.vite-index FAIL "docker compose dev up failed (see logs/dev-up.log)"
+  addcheck dev.vite-index FAIL "dev stack failed to start or its host ports were not discoverable (see logs/dev-up.log, logs/dev-port-discovery.log)"
   for i in dev.vite-main-js dev.api-proxy dev.backend-species; do addcheck $i FAIL "dev stack failed to start"; done
 fi
 
 # ---- 7. teardown (run-owned only), then summarise -------------------------------------------
 cd "$ROOT"
 cd "$CHK" && cleanup; cd "$ROOT"
+export DEV_BACKEND_PORT DEV_REDIS_PORT DEV_FRONT_PORT
 python3 -I - "$OUT" <<'E_PY'
-import json, sys, datetime, pathlib
+import json, os, sys, datetime, pathlib
 p = pathlib.Path(sys.argv[1]) / "environment.json"
-d = json.loads(p.read_text()); d["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+d = json.loads(p.read_text())
+# actual Docker-assigned host ports (all on 127.0.0.1), resolved with `docker compose port` after start
+d["resolved_ports"] = {"backend": os.environ.get("BACKEND_PORT", ""), "redis": os.environ.get("REDIS_PORT", ""),
+                       "dev_backend": os.environ.get("DEV_BACKEND_PORT", ""), "dev_redis": os.environ.get("DEV_REDIS_PORT", ""),
+                       "dev_frontend": os.environ.get("DEV_FRONT_PORT", "")}
+d["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 p.write_text(json.dumps(d, indent=1))
 E_PY
 # final reporting: the frozen committed policy in $OUT/policy (the snapshot checkout is already deleted; the working

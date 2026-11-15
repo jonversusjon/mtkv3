@@ -376,3 +376,81 @@ def test_harness_final_reporting_uses_frozen_policy_not_working_tree_or_deleted_
     assert "$ROOT/$BROWSER_DIR/required-checks.txt" not in final and "scripts/readiness/summarize_evidence.py" not in final
     # the not-run path also uses the frozen committed summarizer
     assert 'python3 -I "$ROOT/scripts/readiness/summarize_evidence.py"' not in text
+
+
+# ---- port allocation / discovery contract (Docker-assigned ports, no pre-picked ports) ----------
+PORTS = REPO / "scripts/readiness/ports.sh"
+
+
+def _bash(snippet, env=None):
+    return subprocess.run(["bash", "-c", f"source {PORTS}; {snippet}"], capture_output=True, text=True, timeout=60, env=env)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("127.0.0.1:49153\n", "49153"),
+    ("127.0.0.1:49153\r\n", "49153"),
+    ("127.0.0.1:49153\n127.0.0.1:49153\n", "49153"),
+    ("127.0.0.1:65535", "65535"),
+])
+def test_parse_published_port_accepts_loopback_mappings(text, expected):
+    r = subprocess.run(["bash", "-c", f'source {PORTS}; parse_published_port "$1"', "x", text], capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("text", [
+    "", "\n", "0.0.0.0:49153", "[::]:49153", "localhost:49153", "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:abc",
+    "127.0.0.1:", "49153", "127.0.0.1:49153\n127.0.0.1:49154", "127.0.0.1:49153\n0.0.0.0:49153",
+    "no container for service backend", "Error response from daemon: port not found",
+])
+def test_parse_published_port_rejects_malformed_missing_or_non_loopback(text):
+    r = subprocess.run(["bash", "-c", f'source {PORTS}; parse_published_port "$1"', "x", text], capture_output=True, text=True)
+    assert r.returncode == 1 and r.stdout == ""
+
+
+def test_resolve_is_bounded_and_fails_honestly_on_bad_output(tmp_path):
+    counter = tmp_path / "calls"
+    snippet = f'fake() {{ echo x >> {counter}; echo "garbage"; return 1; }}; resolve_published_port fake backend 5000 4 0'
+    r = _bash(snippet)
+    assert r.returncode == 1 and r.stdout == ""
+    assert "could not discover" in r.stderr and "backend:5000" in r.stderr and "4 attempts" in r.stderr
+    assert len(counter.read_text().split()) == 4
+
+
+def test_resolve_retries_until_the_port_is_published(tmp_path):
+    counter = tmp_path / "calls"
+    snippet = (f'fake() {{ echo x >> {counter}; if [ "$(wc -l < {counter})" -lt 3 ]; then return 1; fi; echo 127.0.0.1:40123; }}; '
+               f'resolve_published_port fake redis 6379 5 0')
+    r = _bash(snippet)
+    assert r.returncode == 0 and r.stdout.strip() == "40123"
+    assert len(counter.read_text().split()) == 3
+
+
+def test_five_services_with_distinct_assigned_ports_all_resolve_uniquely():
+    snippet = ('fake() { case "$2" in backend) echo 127.0.0.1:41001;; redis) echo 127.0.0.1:41002;; frontend) echo 127.0.0.1:41003;; esac; }; '
+               'for s in "backend 5000" "redis 6379" "frontend 3000"; do resolve_published_port fake $s 1 0; done')
+    r = _bash(snippet)
+    assert r.returncode == 0
+    ports = r.stdout.split()
+    assert ports == ["41001", "41002", "41003"] and len(set(ports)) == 3
+
+
+def test_runner_lets_docker_assign_ports_and_never_picks_them_itself():
+    t = SCRIPT.read_text()
+    assert ("free_" + "port") not in t and ("s." + "bind") not in t and (".bind" + "((") not in t
+    assert "MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 docker compose" in t
+    assert "MTK_BACKEND_PORT=0 MTK_REDIS_PORT=0 MTK_FRONTEND_PORT=0 docker compose" in t
+    for svc, cport in (("backend", "5000"), ("redis", "6379"), ("frontend", "3000")):
+        assert f"resolve_published_port devcompose {svc} {cport}" in t or f"resolve_published_port compose {svc} {cport}" in t
+    # discovery failure is an infrastructure failure, and ports are recorded as evidence
+    assert "not discoverable" in t and "resolved_ports" in t and "resolved: backend=" in t
+    # dev discovery failure never PASSes the dev checks
+    assert "dev stack failed to start or its host ports were not discoverable" in t
+
+
+def test_compose_files_keep_user_defaults_and_loopback_binds():
+    for name, expect in (("docker-compose.yaml", ("5000", "6379")), ("docker-compose.dev.yaml", ("5000", "6379", "3000"))):
+        text = (REPO / name).read_text()
+        for port in expect:
+            assert f":-{port}}}:{port}\"" in text
+        for line in re.findall(r'-\s*"(\$?[^"]*MTK_[A-Z]+_PORT[^"]*)"', text):
+            assert line.startswith("127.0.0.1:"), line
