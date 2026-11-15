@@ -1,0 +1,23 @@
+sha256:80b1567c67e1f1178708fe5e855482cac6461e336e83678598e396d96b7fd2e9
+== versions
+amqp              5.4.2
+celery            5.4.0
+kombu             5.5.4
+redis             5.2.1
+vine              5.1.0
+== ping
+[2026-11-15 11:46:13,089] INFO flask_backend: Starting Flask app...
+->  celery@7f278f69cedf: OK
+        pong
+
+1 node online.
+== state
+running exit=0
+== published ports
+(none above = none)
+== worker console tail
+whether broker connection retries are made during startup in Celery 6.0 and above.
+If you wish to retain the existing behavior for retrying connections on startup,
+you should set broker_connection_retry_on_startup to True.
+  warnings.warn(
+

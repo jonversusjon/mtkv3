@@ -200,3 +200,42 @@ def test_dev_compose_is_a_separate_entry_point_with_explicit_app():
     c = _compose("docker-compose.dev.yaml")
     assert "flask_backend.app:create_app" in c["services"]["backend"]["command"]
     assert "frontend" in c["services"]
+
+
+# ---- celery worker transport + logging visibility ---------------------------
+def test_kombu_pinned_and_compatible_with_pinned_redis_py():
+    reqs = (REPO / "flask_backend" / "requirements.txt").read_text()
+    assert "kombu==5.5.4" in reqs and "redis==5.2.1" in reqs and "celery==5.4.0" in reqs
+
+
+def test_redis_transport_client_class_selected_without_version_mismatch():
+    """kombu's own redis-py compatibility check (where VersionMismatch was raised)
+    runs against the installed redis-py; the real broker ping is done in the Docker
+    evidence run (see tests/readiness/evidence/worker_ping.txt)."""
+    from kombu.transport.redis import Channel
+    client_cls = Channel.__new__(Channel)._get_client()
+    import redis
+    assert client_cls is redis.Redis
+
+
+def test_worker_logging_hooks_keep_file_handlers_and_console_errors(tmp_path):
+    import logging
+    from flask_backend.logger.console import quiet_console as _quiet_console
+    lg = logging.getLogger("readiness.hook")
+    lg.handlers = []
+    lg.propagate = False
+    lg.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(tmp_path / "w.log")
+    ch = logging.StreamHandler()
+    lg.addHandler(fh); lg.addHandler(ch)
+    try:
+        _quiet_console(lg)
+        assert fh in lg.handlers and ch in lg.handlers
+        assert fh.level == logging.NOTSET
+        assert ch.level == logging.WARNING  # fatal startup errors still reach console
+        import io
+        buf = io.StringIO(); ch.setStream(buf)
+        lg.info("noise"); lg.critical("fatal VersionMismatch")
+        assert "fatal VersionMismatch" in buf.getvalue() and "noise" not in buf.getvalue()
+    finally:
+        lg.removeHandler(fh); lg.removeHandler(ch); fh.close()
