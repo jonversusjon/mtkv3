@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fast readiness tests.  Usage: scripts/readiness/test-fast.sh <suite>...
-#   suites: startup | lifecycle | followups | all
+#   suites: startup | lifecycle | followups | browser | all   (browser = harness validation incl. verify-clean-stack.sh --check; it never runs the real browser)
 # Dependencies are installed reproducibly into project-local locations:
 #   backend : scripts/readiness/.venv  (Python 3.10/3.11 from flask_backend/requirements*.txt, exact pins)
 #   frontend: react-frontend/node_modules via `npm ci` (committed package-lock.json)
@@ -43,14 +43,15 @@ own_if_absent "$ROOT/flask_backend/static/exports"   # export tests isolate thei
 die() { echo "test-fast: ERROR: $*" >&2; exit 1; }
 
 # ---- suite registry: each later unit adds its tests/readiness/<suite> dir ----
-SUITES=(startup lifecycle followups)
+SUITES=(startup lifecycle followups browser)
 declare -A SUITE_PY=( [startup]="tests/readiness/test_startup.py"
                       [lifecycle]="tests/readiness/test_lifecycle.py"
-                      [followups]="tests/readiness/test_followups.py" )
-declare -A SUITE_FRONTEND=( [startup]=1 [lifecycle]=1 [followups]=1 )   # suites that also run vitest
+                      [followups]="tests/readiness/test_followups.py"
+                      [browser]="tests/readiness/test_browser_harness.py" )
+declare -A SUITE_FRONTEND=( [startup]=1 [lifecycle]=1 [followups]=1 )   # browser: harness checks only (no vitest)   # suites that also run vitest
 declare -A SUITE_SMOKE=( [startup]="tests/readiness/smoke_dev.py" )
 
-usage() { echo "usage: $0 <startup|lifecycle|followups|all>..." >&2; exit 2; }
+usage() { echo "usage: $0 <startup|lifecycle|followups|browser|all>..." >&2; exit 2; }
 [ "$#" -ge 1 ] || usage
 REQUESTED=()
 for s in "$@"; do
