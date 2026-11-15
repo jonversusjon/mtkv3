@@ -36,6 +36,29 @@ const SEQ = seqOf(fx.sequence_constant);                         // TEST_SEQ_1, 
 expect(SEQ.length).toBe(fx.sequence_length);
 const EXP = expectations.expected;
 
+
+// ---- run-owned worker pause (pending-state observation) -------------------------------------
+// ONLY the container id the harness resolved for THIS run's own compose project/service `worker` can be
+// paused; the labels are re-checked before every docker call.  Nothing else on the host is touched.
+const WORKER = process.env.MTK_WORKER_CONTAINER || "";
+const PROJECT = process.env.MTK_COMPOSE_PROJECT || "";
+const docker = (...args) => execFileSync("docker", args, { encoding: "utf8", timeout: 60_000 }).trim();
+const assertRunOwnedWorker = () => {
+  if (!WORKER || !PROJECT) throw new Error("MTK_WORKER_CONTAINER and MTK_COMPOSE_PROJECT are required for the pending-state check");
+  const labels = docker("inspect", "-f", '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}', WORKER);
+  if (labels !== `${PROJECT}|worker`) throw new Error(`refusing to touch container ${WORKER}: labels ${labels} are not ${PROJECT}|worker`);
+};
+let workerPaused = false;
+const pauseWorker = () => { assertRunOwnedWorker(); docker("pause", WORKER); workerPaused = true; };
+const resumeWorker = () => {
+  if (!workerPaused) return false;
+  assertRunOwnedWorker();
+  docker("unpause", WORKER);
+  workerPaused = false;
+  return true;
+};
+const workerState = () => docker("inspect", "-f", "{{.State.Status}} paused={{.State.Paused}}", WORKER);
+
 const looksLikeHtml = (body) => /^\s*<(!doctype|html|\?xml)/i.test(body);
 
 // ---- shared serial state ----------------------------------------------------------------
@@ -60,6 +83,7 @@ test.beforeAll(async ({ browser }) => {
 });
 
 test.afterAll(async () => {
+  try { resumeWorker(); } catch (e) { fs.mkdirSync(path.join(OUT, "logs"), { recursive: true }); fs.appendFileSync(path.join(OUT, "logs", "worker-resume-error.txt"), `${e}\n`); }
   const shot = (n) => path.join(OUT, "screenshots", n);
   fs.mkdirSync(path.join(OUT, "screenshots"), { recursive: true });
   try { await page.screenshot({ path: shot("99-final-state.png"), fullPage: true }); } catch { /* page may be closed */ }
@@ -172,14 +196,38 @@ test("05 submit the named fixture via the form; correlate with expectations.json
   await shot("05a-form-filled.png");
   const submit = page.getByRole("button", { name: "Generate Protocol" });
   await expect(submit).toBeEnabled();
-  const [reqEv] = await Promise.all([
-    page.waitForRequest((r) => /\/api\/generate_protocol$/.test(r.url()) && r.method() === "POST"),
-    submit.click(),
-  ]);
-  const sent = JSON.parse(reqEv.postData());
+
+  // PENDING observation: with ONLY this run's worker paused, a real submission through the form is accepted
+  // but cannot finish.  Assert the pending API state and the visible "Processing…" feedback BEFORE any
+  // success, then resume the worker (finally) and wait for the real success below.
+  let reqEv;
+  let pendingJob;
+  try {
+    pauseWorker();
+    record("pending.worker-paused", "PASS", `docker pause of run-owned worker ${WORKER.slice(0, 12)} (project ${PROJECT}): ${workerState()}`);
+    [reqEv] = await Promise.all([
+      page.waitForRequest((r) => /\/api\/generate_protocol$/.test(r.url()) && r.method() === "POST"),
+      submit.click(),
+    ]);
+    const acc0 = await (await reqEv.response()).json();
+    await expect(page).toHaveURL(/\/results$/);
+    await expect(page.getByTestId("sequence-status-pending")).toBeVisible({ timeout: 30_000 });
+    const pendingText = (await page.getByTestId("sequence-status-pending").innerText()).trim();
+    await shot("05a2-pending.png");
+    await page.waitForTimeout(5_000);                       // it must STAY pending while the worker cannot run
+    pendingJob = await (await api.get(`/api/jobs/${acc0.job_id}`)).json();
+    check("pending.api-state", pendingJob.state === "pending" && pendingJob.sequences[0].state === "pending" && !pendingJob.sequences[0].result,
+      `GET /api/jobs/${acc0.job_id} with worker paused -> state=${pendingJob.state}, sequence state=${pendingJob.sequences[0].state}, no result`);
+    check("pending.ui-feedback", /Processing/.test(pendingText) && (await page.getByTestId("sequence-status-success").count()) === 0,
+      `visible pending status ${JSON.stringify(pendingText)}; no success status shown`);
+  } finally {
+    const resumed = resumeWorker();
+    if (resumed) record("pending.worker-resumed", "PASS", `docker unpause of run-owned worker: ${workerState()}`);
+  }
   const resp = await reqEv.response();
   const accepted = await resp.json();
   check("submit.accepted", resp.status() < 300 && !!accepted.job_id, `POST /api/generate_protocol -> ${resp.status()} job_id=${accepted.job_id}`);
+  const sent = JSON.parse(reqEv.postData());
   S.jobId = accepted.job_id; S.sent = sent;
   fs.writeFileSync(path.join(OUT, "submitted-request.json"), JSON.stringify({ sent, accepted }, null, 1));
 
@@ -203,6 +251,7 @@ test("05 submit the named fixture via the form; correlate with expectations.json
   await expect(page).toHaveURL(/\/results$/);
   await expect(page.getByTestId("sequence-status-success")).toBeVisible({ timeout: TERMINAL_BOUND_MS });
   await shot("05b-results-success.png");
+  check("pending.then-success", S.jobId === pendingJob.jobId, `the job observed pending (${pendingJob.jobId}) is the same job that then reached success (${S.jobId})`);
   const stored = await page.evaluate(() => sessionStorage.getItem("jobId"));
   check("results.job-identity", stored === S.jobId, `page jobId=${stored} == submitted job_id=${S.jobId}`);
 
@@ -334,9 +383,11 @@ test("10 controlled real-worker failure reaches a bounded terminal error in the 
   // Fault injection on RUN-OWNED infrastructure: a fresh submission is processed normally, then
   // its request record is deleted from this run's own Redis.  The user's primer-design action is
   // then rejected by the REAL Celery worker ("submission no longer available"): a genuine
-  // worker-side failure, not a mocked API response.  (No >=80 bp input that passes the form and API
-  // validation makes the generate step itself fail in the worker; the lone-stop-codon inputs that do
-  // are blocked by the form's 80 bp minimum, so this is the reachable worker-failure path.)
+  // worker-side failure, not a mocked API response.  Why this injection: the generate step's own
+  // worker-side failures are reachable only with input the form blocks (it requires >= 80 bp) or the
+  // API rejects up front with 400, so a browser-reachable genuine worker failure is the primer-design
+  // task whose stored submission is gone.  The generate step's validation rejections are covered by
+  // the invalid-input checks, which are request-time errors and not worker failures.
   const redisCli = JSON.parse(process.env.MTK_REDIS_CLI_JSON || "null");
   if (!redisCli) throw new Error("MTK_REDIS_CLI_JSON is required for the controlled-failure check");
   await fillForm(SEQ, "worker-failure-probe", fx.mtkPartLeft, fx.mtkPartRight);

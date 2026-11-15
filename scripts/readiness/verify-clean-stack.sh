@@ -6,16 +6,20 @@
 #   scripts/readiness/verify-clean-stack.sh --output DIR       full acceptance run, evidence into DIR
 #
 # Full run (host: Docker Desktop with WSL integration, e.g. Lerpterp3 WSL2):
-#   1. exports HEAD (committed content only) into an ephemeral directory with `git archive`;
-#      refuses to run with uncommitted tracked changes so the evidence matches the tested SHA;
+#   1. exports HEAD (committed content only) into an ephemeral directory with `git archive` (scripts/readiness/
+#      snapshot_source.sh). Uncommitted tracked edits and untracked files in the working tree are NOT tested and
+#      NOT copied; they are listed in source-exclusions.txt next to the tested SHA;
 #   2. builds the images with --no-cache from that checkout (the frontend bundle is built inside the
 #      image; a prebuilt/local bundle can never be served) and starts an isolated Compose project
 #      (unique name, free localhost ports, its own Redis, its own export files) with a real Celery worker;
-#   3. runs the Playwright/Chromium acceptance suite (tests/readiness/browser) against it;
+#   3. runs the Playwright/Chromium acceptance suite (tests/readiness/browser) against it (npm and Playwright
+#      browser downloads live in the run's temp directory and are removed with it; browser system libraries
+#      are a documented host prerequisite and are verified with ldd, never installed);
 #   4. starts a separate isolated Compose project from docker-compose.dev.yaml (Vite + Flask + worker) and
 #      smoke-checks the development launch path;
 #   5. writes logs, traces, screenshots, network capture, versions, host, tested SHA and exact commands,
 #      then removes ONLY the resources this run created (its two Compose projects and the temp checkout).
+# Required files in DIR: summary.json and browser-results.json (always written, truthfully: NOT-RUN/FAIL/OPEN/PASS).
 # Exit status: 0 PASS | 1 FAIL | 2 infrastructure unavailable (acceptance NOT run) | 3 OPEN (checks that
 # cannot yet be decided, e.g. a pending owner decision; never reported as PASS).
 set -uo pipefail
@@ -28,7 +32,7 @@ while [ "$#" -gt 0 ]; do
     --check) MODE=check ;;
     --output) MODE=run; shift; OUT="${1:-}" ;;
     --output=*) MODE=run; OUT="${1#--output=}" ;;
-    -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1 (use --check or --output DIR)" >&2; exit 2 ;;
   esac
   shift
@@ -46,10 +50,12 @@ if [ "$MODE" = check ]; then
 
   for f in "$BROWSER_DIR/acceptance.spec.mjs" "$BROWSER_DIR/playwright.config.mjs" "$BROWSER_DIR/package.json" \
            "$BROWSER_DIR/package-lock.json" "$BROWSER_DIR/required-checks.txt" scripts/readiness/summarize_evidence.py \
+           scripts/readiness/snapshot_source.sh \
            tests/readiness/expectations.json docker-compose.yaml docker-compose.dev.yaml README.md; do
     [ -f "$f" ] && ok "$f exists" || bad "$f is missing"
   done
   bash -n "${BASH_SOURCE[0]}" && ok "this script parses" || bad "script syntax"
+  bash -n scripts/readiness/snapshot_source.sh && ok "snapshot_source.sh parses" || bad "snapshot_source.sh syntax"
   command -v node >/dev/null || { bad "node not found"; }
   if command -v node >/dev/null; then
     node --check "$BROWSER_DIR/acceptance.spec.mjs" && ok "acceptance.spec.mjs syntax" || bad "acceptance.spec.mjs syntax"
@@ -80,6 +86,8 @@ need("page.route(" not in spec and "context.route(" not in spec and ".route(" no
      "spec does not intercept or rewrite requests (no mocked API success)")
 need("ALWAYS_EAGER" not in spec, "spec has no Celery eager-mode shortcut")
 need("process.env.MTK_BASE_URL" in cfg and "MTK_BASE_URL ||" not in cfg, "base URL comes only from the environment (no default port)")
+need("docker\", [\"pause\"" not in spec and 'docker("pause", WORKER)' in spec and "assertRunOwnedWorker" in spec,
+     "spec pauses only the run-owned worker container after a label check")
 need("localhost:5000" not in spec and "127.0.0.1:5000" not in spec, "spec never targets the well-known port 5000")
 
 req = [l.strip() for l in (br / "required-checks.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
@@ -102,6 +110,8 @@ need("${MTK_FRONTEND_PORT" in (root / "docker-compose.dev.yaml").read_text(), "d
 need("- .:/app" not in (root / "docker-compose.yaml").read_text(), "default compose has no source bind mount over the built bundle")
 
 readme = (root / "README.md").read_text()
+need("git clone --branch logger-overhaul https://github.com/jonversusjon/mtkv3.git mtkv3" in readme and "<repo-url>" not in readme,
+     "README clones the actual repository and integration branch")
 for needle in ("verify-clean-stack.sh --output", "verify-clean-stack.sh --check", "test-fast.sh all",
                "Prerequisites", "http://localhost:5000", "http://localhost:3000", "Expected observations",
                "Lerpterp3", "OPEN"):
@@ -132,7 +142,11 @@ OUT="$(cd "$OUT" && pwd)"
 mkdir -p "$OUT/logs" "$OUT/screenshots"
 CMDS="$OUT/commands.txt"; : > "$CMDS"
 STARTED="$(date -u +%FT%TZ)"
-infra_fail() { echo "ACCEPTANCE NOT RUN (infrastructure unavailable): $*" | tee "$OUT/NOT-RUN.txt" >&2; exit 2; }
+infra_fail() {
+  echo "ACCEPTANCE NOT RUN (infrastructure unavailable): $*" | tee "$OUT/NOT-RUN.txt" >&2
+  if command -v python3 >/dev/null; then python3 -I "$ROOT/scripts/readiness/summarize_evidence.py" --not-run "$OUT" "$*" >/dev/null 2>&1 || true; fi
+  exit 2
+}
 
 # record + run a command; the exact command line goes into commands.txt
 run() { printf '+ %s\n' "$*" >> "$CMDS"; "$@"; }
@@ -147,15 +161,17 @@ command -v node >/dev/null || infra_fail "node not found"
 command -v npm  >/dev/null || infra_fail "npm not found"
 command -v python3 >/dev/null || infra_fail "python3 not found"
 [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 18 ] || infra_fail "node >= 18 required"
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  infra_fail "tracked files have uncommitted changes; commit first so the tested SHA is what ran"
-fi
 SHA="$(git rev-parse HEAD)"
 
 RUNID="$(date +%s)-$RANDOM"
 PROJ="mtkready-$RUNID"; DEVPROJ="mtkready-dev-$RUNID"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/mtkready-XXXXXX")"
 CHK="$TMP/checkout"
+# npm and Playwright downloads are run-owned (inside $TMP, removed at teardown); nothing is installed into
+# ~/.npm, ~/.cache/ms-playwright or any other shared location.
+export npm_config_cache="$TMP/npm-cache"
+export PLAYWRIGHT_BROWSERS_PATH="$TMP/pw-browsers"
+export PLAYWRIGHT_SKIP_BROWSER_GC=1
 free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])'; }
 BACKEND_PORT="$(free_port)"; REDIS_PORT="$(free_port)"
 DEV_BACKEND_PORT="$(free_port)"; DEV_REDIS_PORT="$(free_port)"; DEV_FRONT_PORT="$(free_port)"
@@ -169,6 +185,13 @@ cleaned=0
 cleanup() {
   [ "$cleaned" = 1 ] && return; cleaned=1
   if [ -d "$CHK" ]; then
+    # a paused run-owned worker (interrupted pending-state check) must never be left paused
+    ( cd "$CHK" && for c in $(compose ps -q worker 2>/dev/null); do
+        if [ "$(docker inspect -f '{{.State.Paused}}' "$c" 2>/dev/null)" = true ]; then
+          printf '+ docker unpause %s   # run-owned worker, interrupted run\n' "$c" >> "$CMDS"
+          docker unpause "$c" >> "$OUT/logs/teardown.log" 2>&1
+        fi
+      done ) || true
     ( cd "$CHK" && { compose logs --no-color > "$OUT/logs/stack-compose.log" 2>&1; compose ps -a > "$OUT/logs/stack-ps.txt" 2>&1; } ) || true
     ( cd "$CHK" && { devcompose logs --no-color > "$OUT/logs/dev-compose.log" 2>&1; } ) || true
     ( cd "$CHK" && { printf '+ docker compose -p %s down -v --rmi local --remove-orphans\n' "$PROJ" >> "$CMDS"; compose down -v --rmi local --remove-orphans >> "$OUT/logs/teardown.log" 2>&1; } ) || true
@@ -198,9 +221,13 @@ addcheck() {   # addcheck ID STATUS DETAIL
 }
 
 # ---- 1. ephemeral clean checkout of the committed SHA -----------------------------------------
-mkdir -p "$CHK"
-printf '+ git archive %s | tar -x -C <ephemeral checkout>\n' "$SHA" >> "$CMDS"
-git archive "$SHA" | tar -x -C "$CHK" || infra_fail "git archive failed"
+printf '+ scripts/readiness/snapshot_source.sh <ephemeral checkout> %s/source-exclusions.txt   # git archive %s\n' "$OUT" "$SHA" >> "$CMDS"
+SNAPSHOT_SHA="$(bash "$ROOT/scripts/readiness/snapshot_source.sh" "$CHK" "$OUT/source-exclusions.txt" 2>> "$OUT/logs/snapshot.log")" \
+  || { addcheck stack.source-isolation FAIL "snapshot isolation failed (see logs/snapshot.log)"; infra_fail "could not create an isolated committed-source snapshot (see logs/snapshot.log)"; }
+[ "$SNAPSHOT_SHA" = "$SHA" ] || infra_fail "snapshot SHA $SNAPSHOT_SHA != HEAD $SHA"
+printf '%s\n' "$SHA" > "$OUT/tested-sha.txt"
+EXCL="$(grep -c . <(git status --porcelain --untracked-files=all) || true)"
+addcheck stack.source-isolation PASS "tested the committed snapshot of $SHA; $EXCL uncommitted/untracked working-tree entries were excluded and not copied (listed in source-exclusions.txt)"
 if [ -e "$CHK/flask_backend/static/react" ] || [ -e "$CHK/react-frontend/node_modules" ]; then
   addcheck stack.fresh-build FAIL "committed tree already contains a built bundle or node_modules"
 else
@@ -208,10 +235,16 @@ else
 fi
 cd "$CHK"
 
-# ---- 2. browser tooling inside the ephemeral checkout ----------------------------------------
+# ---- 2. browser tooling inside the ephemeral checkout (run-owned caches, see exports above) ------
 ( cd "$BROWSER_DIR" && run npm ci --no-audit --no-fund ) >> "$OUT/logs/npm-ci-browser.log" 2>&1 || infra_fail "npm ci for Playwright failed (see logs/npm-ci-browser.log)"
 ( cd "$BROWSER_DIR" && run npx playwright install chromium ) >> "$OUT/logs/playwright-install.log" 2>&1 \
-  || infra_fail "could not install Chromium for Playwright (see logs/playwright-install.log)"
+  || infra_fail "could not download Chromium into the run-owned browser directory (see logs/playwright-install.log)"
+# browser system libraries are a documented host prerequisite (README); verify them, never install them
+CHROME_BIN="$(find "$PLAYWRIGHT_BROWSERS_PATH" -type f \( -name chrome -o -name headless_shell \) 2>/dev/null | head -5)"
+[ -n "$CHROME_BIN" ] || infra_fail "no Chromium binary found under the run-owned browser directory"
+MISSING_LIBS="$(for b in $CHROME_BIN; do ldd "$b" 2>&1 | grep 'not found'; done | sort -u)"
+printf '%s\n' "${MISSING_LIBS:-no missing shared libraries}" > "$OUT/logs/chromium-ldd.txt"
+[ -z "$MISSING_LIBS" ] || infra_fail "Chromium system libraries missing on this host (install the prerequisite packages from the README): $(tr '\n' ';' <<<"$MISSING_LIBS")"
 
 # ---- 3. isolated stack, fresh build -------------------------------------------------------
 printf '+ MTK_BACKEND_PORT=%s MTK_REDIS_PORT=%s docker compose -p %s -f docker-compose.yaml build --no-cache\n' "$BACKEND_PORT" "$REDIS_PORT" "$PROJ" >> "$CMDS"
@@ -227,14 +260,21 @@ wait_http() {  # url seconds
 }
 wait_http "$BASE/api/species" 120 || { compose logs --no-color > "$OUT/logs/stack-compose.log" 2>&1; infra_fail "backend did not become ready at $BASE"; }
 
-# worker readiness: the real Celery worker must answer a ping (no stale/old worker can: Redis is brand new)
-WORKER_OK=0
-for _ in $(seq 1 60); do
-  PING="$(compose exec -T worker celery -A flask_backend.celery_worker.celery inspect ping -t 5 2>/dev/null)"
-  case "$PING" in *pong*) WORKER_OK=1; break ;; esac     # (no `| grep -q`: pipefail + SIGPIPE would misreport)
+# worker readiness: the real Celery worker must answer a bounded ping (Redis is brand new, so no stale worker can).
+# The whole command output is captured BEFORE it is inspected: `ping | grep -q pong` under pipefail returns 141
+# (SIGPIPE) for a healthy worker.  At most 30 attempts of ~5 s each.
+WORKER_OK=0; ATTEMPTS=0; PING=""
+: > "$OUT/logs/worker-ping.txt"
+for ATTEMPTS in $(seq 1 30); do
+  PING="$(compose exec -T worker celery -A flask_backend.celery_worker.celery inspect ping -t 5 2>&1)"; PRC=$?
+  { echo "--- attempt $ATTEMPTS (exit $PRC) ---"; printf '%s\n' "$PING"; } >> "$OUT/logs/worker-ping.txt"
+  case "$PING" in *pong*) WORKER_OK=1; break ;; esac
   sleep 2
 done
-[ "$WORKER_OK" = 1 ] || infra_fail "Celery worker never answered ping"
+[ "$WORKER_OK" = 1 ] || infra_fail "Celery worker never answered ping in $ATTEMPTS attempts (see logs/worker-ping.txt)"
+addcheck stack.worker-ping PASS "real Celery worker answered ping on attempt $ATTEMPTS: $(printf '%s' "$PING" | tr '\n' ' ' | cut -c1-200)"
+WORKER_CID="$(compose ps -q worker | head -1)"
+[ -n "$WORKER_CID" ] || infra_fail "could not resolve this run's worker container"
 
 # isolation / freshness evidence
 NPROJ="$(docker ps -q --filter "label=com.docker.compose.project=$PROJ" | wc -l)"
@@ -286,7 +326,7 @@ printf '%s\n' "$SHA" > "$OUT/tested-sha.txt"
 REDIS_CLI_JSON="$(python3 -I -c 'import json,sys;print(json.dumps(sys.argv[1:]))' docker compose -p "$PROJ" -f "$CHK/docker-compose.yaml" exec -T redis redis-cli)"
 printf '+ (cd %s && MTK_BASE_URL=%s MTK_OUTPUT=%s MTK_REPO=<checkout> MTK_REDIS_CLI_JSON=... npx playwright test)\n' "$BROWSER_DIR" "$BASE" "$OUT" >> "$CMDS"
 ( cd "$BROWSER_DIR" && MTK_BASE_URL="$BASE" MTK_OUTPUT="$OUT" MTK_REPO="$CHK" MTK_REDIS_CLI_JSON="$REDIS_CLI_JSON" \
-    MTK_BACKEND_PORT=$BACKEND_PORT MTK_REDIS_PORT=$REDIS_PORT npx playwright test -c playwright.config.mjs ) > "$OUT/logs/playwright.log" 2>&1
+    MTK_WORKER_CONTAINER="$WORKER_CID" MTK_COMPOSE_PROJECT="$PROJ" MTK_BACKEND_PORT=$BACKEND_PORT MTK_REDIS_PORT=$REDIS_PORT npx playwright test -c playwright.config.mjs ) > "$OUT/logs/playwright.log" 2>&1
 PW_EXIT=$?
 cp "$BROWSER_DIR/package-lock.json" "$OUT/playwright-package-lock.json" 2>/dev/null || true
 
@@ -328,5 +368,5 @@ p.write_text(json.dumps(d, indent=1))
 E_PY
 python3 -I scripts/readiness/summarize_evidence.py "$OUT" "$ROOT/$BROWSER_DIR/required-checks.txt" "$PW_EXIT"
 RC=$?
-echo "evidence: $OUT (SUMMARY.md, result.json, trace.zip, screenshots/, network.json, logs/, commands.txt)"
+echo "evidence: $OUT (summary.json, browser-results.json, SUMMARY.md, result.json, source-exclusions.txt, trace.zip, screenshots/, network.json, logs/, commands.txt)"
 exit $RC

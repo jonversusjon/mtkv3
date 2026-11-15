@@ -34,6 +34,7 @@ trap cleanup EXIT
 own_if_absent "$VENV"
 own_if_absent "$TOOLS"
 own_if_absent "$ROOT/react-frontend/node_modules"
+own_if_absent "$ROOT/tests/readiness/browser/node_modules"
 own_if_absent "$ROOT/flask_backend/static/react"
 own_if_absent "$ROOT/flask_backend/log_utils"
 own_if_absent "$ROOT/flask_backend/log_utils/logs"
@@ -96,8 +97,15 @@ ensure_node() {
   (cd react-frontend && npm ci --no-audit --no-fund >/dev/null) || die "npm ci failed (lockfile out of sync?)"
 }
 
+ensure_browser_runner() {
+  # Only the Playwright *test runner* (no browser download): the harness tests run real Playwright
+  # specs that skip/pass without launching a browser, to prove skipped tests can never become a PASS.
+  (cd tests/readiness/browser && npm ci --no-audit --no-fund >/dev/null) || die "npm ci for the Playwright runner failed"
+}
+
 ensure_venv
 ensure_node
+case " ${REQUESTED[*]} " in *" browser "*) ensure_browser_runner ;; esac
 
 # ---- run ---------------------------------------------------------------------
 for s in "${REQUESTED[@]}"; do

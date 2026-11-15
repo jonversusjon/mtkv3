@@ -6,6 +6,7 @@ skipped, missing or undecided check as passed.  They do NOT run browser acceptan
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,11 @@ def test_full_run_without_docker_hard_fails_and_never_reports_pass(tmp_path):
     assert "ACCEPTANCE NOT RUN" in r.stderr
     assert (out / "NOT-RUN.txt").exists()
     assert not (out / "result.json").exists()
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["verdict"] == "NOT-RUN" and summary["acceptance_run"] is False
+    assert json.loads((out / "browser-results.json").read_text())["tests"] == []
+    for name in ("summary.json", "browser-results.json"):
+        assert (out / name).stat().st_size >= 100
 
 
 def test_full_run_refuses_a_non_empty_output_dir(tmp_path):
@@ -58,7 +64,20 @@ def test_full_run_refuses_a_non_empty_output_dir(tmp_path):
     assert r.returncode == 2 and "not empty" in r.stderr
 
 
-def _summ(tmp_path, rows, pw_exit=0, required=("a.one", "b.two*")):
+def pw_report(*statuses):
+    """A Playwright JSON report (same shape the real json reporter writes) with one test per status."""
+    specs = []
+    for i, st in enumerate(statuses):
+        tst_status = {"passed": "expected", "skipped": "skipped", "failed": "unexpected"}.get(st, "unexpected")
+        specs.append({"title": f"t{i}", "tests": [{"status": tst_status, "results": [{"status": st, "duration": 5}]}]})
+    return {"suites": [{"title": "acceptance.spec.mjs", "specs": specs}]}
+
+
+def _summ(tmp_path, rows, pw_exit=0, required=("a.one", "b.two*"), report="default"):
+    if report == "default":
+        report = pw_report("passed", "passed")
+    if report is not None:
+        (tmp_path / "playwright-report.json").write_text(json.dumps(report))
     (tmp_path / "checks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     req = tmp_path / "req.txt"
     req.write_text("# c\n" + "\n".join(required) + "\n")
@@ -102,3 +121,185 @@ def test_canonical_limit_1_fixture_is_required_and_recorded_open_by_the_spec():
     spec = (REPO / "tests/readiness/browser/acceptance.spec.mjs").read_text()
     assert 'record("fixture.canonical-limit-1-run", "OPEN"' in spec
     assert 'maxMutPerSite' in spec and "page.route(" not in spec
+
+
+# ---- regressions for the confirmed false-PASS cases (browser-verdict-probe: PASS/INFO/SKIP all -> PASS) ----
+@pytest.mark.parametrize("status,verdict,rc", [("PASS", "PASS", 0), ("INFO", "FAIL", 1), ("SKIP", "FAIL", 1),
+                                                ("skip", "FAIL", 1), ("MAYBE", "FAIL", 1), ("OPEN", "OPEN", 3)])
+def test_only_pass_satisfies_a_required_check(tmp_path, status, verdict, rc):
+    got_rc, res = _summ(tmp_path, [row("a.one", status), row("b.two.x", "PASS")])
+    assert (got_rc, res["verdict"]) == (rc, verdict)
+
+
+def test_info_or_skip_on_a_wildcard_required_check_fails(tmp_path):
+    for bad in ("INFO", "SKIP"):
+        d = tmp_path / bad
+        d.mkdir()
+        rc, res = _summ(d, [row("a.one", "PASS"), row("b.two.x", "PASS"), row("b.two.y", bad)])
+        assert (rc, res["verdict"]) == (1, "FAIL") and res["required_non_pass"][0]["status"] == bad
+
+
+def test_info_note_for_a_non_required_check_is_still_allowed_but_unknown_status_is_not(tmp_path):
+    assert _summ(tmp_path, [row("a.one", "PASS"), row("b.two", "PASS"), row("note", "INFO")])[0] == 0
+    d = tmp_path / "u"
+    d.mkdir()
+    assert _summ(d, [row("a.one", "PASS"), row("b.two", "PASS"), row("note", "WEIRD")])[1]["verdict"] == "FAIL"
+
+
+def test_real_playwright_skipped_test_cannot_pass(tmp_path):
+    """Run REAL Playwright on a spec with a skipped test: exit code 0, yet the verdict must be FAIL."""
+    runner = REPO / "tests/readiness/browser/node_modules/.bin/playwright"
+    assert runner.exists(), "Playwright runner missing (test-fast.sh browser installs it)"
+    work = tmp_path / "pw"
+    (work).mkdir()
+    (work / "node_modules").symlink_to(REPO / "tests/readiness/browser/node_modules")
+    (work / "demo.spec.mjs").write_text(
+        'import { test, expect } from "@playwright/test";\n'
+        'test("runs", async () => { expect(1).toBe(1); });\n'
+        'test("is skipped", async () => { test.skip(true, "deliberately skipped"); });\n')
+    out = tmp_path / "out"
+    out.mkdir()
+    (work / "playwright.config.mjs").write_text(
+        f'export default {{ testDir: ".", reporter: [["json", {{ outputFile: {json.dumps(str(out / "playwright-report.json"))} }}]] }};\n')
+    r = subprocess.run([str(runner), "test", "-c", "playwright.config.mjs"], cwd=work, capture_output=True, text=True, timeout=240)
+    assert r.returncode == 0, r.stdout + r.stderr          # Playwright itself calls this a success
+    report = json.loads((out / "playwright-report.json").read_text())
+    assert report["stats"]["skipped"] == 1 and report["stats"]["expected"] == 1
+    (out / "checks.jsonl").write_text(json.dumps(row("a.one", "PASS")) + "\n")
+    req = tmp_path / "req.txt"
+    req.write_text("a.one\n")
+    s = run(sys.executable, str(SUMMARIZE), str(out), str(req), "0")
+    res = json.loads((out / "result.json").read_text())
+    assert s.returncode == 1 and res["verdict"] == "FAIL"
+    assert res["counts"]["playwright_not_passed"] == 1 and "is skipped [skipped]" in " ".join(res["failure_reasons"])
+
+
+def test_skipped_failed_or_missing_playwright_report_cannot_pass(tmp_path):
+    ok = [row("a.one", "PASS"), row("b.two", "PASS")]
+    assert _summ(tmp_path, ok)[1]["verdict"] == "PASS"
+    for i, rep in enumerate((pw_report("passed", "skipped"), pw_report("passed", "failed"), {"suites": []}, None)):
+        d = tmp_path / f"r{i}"
+        d.mkdir()
+        rc, res = _summ(d, ok, report=rep)
+        assert (rc, res["verdict"]) == (1, "FAIL"), rep
+
+
+# ---- output contract: the exact artifacts the approved job requires -------------------------------
+def test_summary_and_browser_results_are_written_from_observed_facts(tmp_path):
+    rows = [row("a.one", "PASS"), row("b.two.x", "OPEN"), row("pending.api-state", "PASS"), row("results.job-api", "PASS"),
+            row("failure.message", "PASS")]
+    rc, res = _summ(tmp_path, rows)
+    assert rc == 3
+    for name in ("summary.json", "browser-results.json"):
+        assert (tmp_path / name).stat().st_size >= 100, name
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    br = json.loads((tmp_path / "browser-results.json").read_text())
+    assert summary["verdict"] == br["verdict"] == "OPEN"
+    assert [t["status"] for t in br["tests"]] == ["passed", "passed"]
+    assert br["observations"]["pending"]["observed"] and br["observations"]["success"]["observed"] and br["observations"]["failure"]["observed"]
+    assert {c["id"]: c["status"] for c in br["checks"]}["b.two.x"] == "OPEN"
+
+
+def test_unsuccessful_runs_write_truthful_files_never_a_passing_placeholder(tmp_path):
+    rc, res = _summ(tmp_path, [row("a.one", "FAIL")], pw_exit=1, report=None)
+    assert rc == 1
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    br = json.loads((tmp_path / "browser-results.json").read_text())
+    assert summary["verdict"] == "FAIL" and br["tests"] == []
+    assert br["observations"]["pending"]["observed"] is False and br["observations"]["failure"]["observed"] is False
+    assert "PASS" not in (tmp_path / "SUMMARY.md").read_text().split("\n")[0]
+
+
+def test_not_run_mode_is_distinct_and_writes_no_result_json(tmp_path):
+    r = run(sys.executable, str(SUMMARIZE), "--not-run", str(tmp_path), "docker not found")
+    assert r.returncode == 2
+    s = json.loads((tmp_path / "summary.json").read_text())
+    assert s["verdict"] == "NOT-RUN" and s["reason"] == "docker not found" and not (tmp_path / "result.json").exists()
+    assert (tmp_path / "summary.json").stat().st_size >= 100 and (tmp_path / "browser-results.json").stat().st_size >= 100
+
+
+# ---- source isolation without Docker --------------------------------------------------------------
+def _git(cwd, *a):
+    return subprocess.run(["git", "-C", str(cwd), *a], capture_output=True, text=True, check=True,
+                          env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                               "GIT_COMMITTER_EMAIL": "t@t"}).stdout.strip()
+
+
+def test_snapshot_tests_committed_head_and_records_but_never_copies_dirty_changes(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "scripts/readiness").mkdir(parents=True)
+    (repo / "react-frontend").mkdir()
+    shutil.copy(REPO / "scripts/readiness/snapshot_source.sh", repo / "scripts/readiness/snapshot_source.sh")
+    (repo / "react-frontend/package-lock.json").write_text("committed-lock\n")
+    (repo / "app.py").write_text("print('committed')\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "c1")
+    sha = _git(repo, "rev-parse", "HEAD")
+    # dirty working tree: tracked edit, untracked file, stale bundle and dependencies
+    (repo / "react-frontend/package-lock.json").write_text("USER EDIT\n")
+    (repo / "environment.yml").write_text("name: user-env\n")
+    (repo / "flask_backend/static/react").mkdir(parents=True)
+    (repo / "flask_backend/static/react/stale.js").write_text("stale")
+    (repo / "react-frontend/node_modules").mkdir()
+    (repo / "react-frontend/node_modules/dep.js").write_text("dep")
+    before = {p: p.read_bytes() for p in [repo / "react-frontend/package-lock.json", repo / "environment.yml"]}
+    snap, evid = tmp_path / "snap", tmp_path / "evidence.txt"
+    r = run("bash", str(repo / "scripts/readiness/snapshot_source.sh"), str(snap), str(evid))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == sha
+    assert (snap / "react-frontend/package-lock.json").read_text() == "committed-lock\n"      # committed, not the user's edit
+    assert not (snap / "environment.yml").exists()
+    assert not (snap / "flask_backend/static/react").exists() and not (snap / "react-frontend/node_modules").exists()
+    text = evid.read_text()
+    assert sha in text and "package-lock.json" in text and "environment.yml" in text and "isolation check: ok" in text
+    # the main checkout's edits are preserved byte for byte
+    assert all(p.read_bytes() == b for p, b in before.items())
+
+
+def test_harness_no_longer_refuses_a_dirty_tree_but_records_exclusions():
+    text = SCRIPT.read_text()
+    assert "uncommitted changes; commit first" not in text and "snapshot_source.sh" in text
+    assert "source-exclusions.txt" in text and "stack.source-isolation" in text and "git archive" in text
+
+
+# ---- readiness probe, caches, prerequisites, README ----------------------------------------------
+def test_worker_ping_is_captured_whole_not_piped_into_grep_q():
+    text = SCRIPT.read_text()
+    assert not re.search(r"inspect ping[^\n]*\|\s*grep", text), "piping ping into grep -q SIGPIPEs a healthy worker (141)"
+    assert 'PING="$(compose exec' in text and "logs/worker-ping.txt" in text and "stack.worker-ping" in text
+    assert "seq 1 30" in text and "while true" not in text           # bounded
+
+
+def test_sigpipe_behaviour_that_motivated_the_ping_fix():
+    """A command that keeps writing after grep -q matches dies with 141 under pipefail; capturing first does not."""
+    cmd = 'set -o pipefail; yes pong | head -c 2000000 | grep -q pong'
+    assert subprocess.run(["bash", "-c", cmd], capture_output=True).returncode != 0
+    cap = 'set -o pipefail; out="$(yes pong | head -c 2000000)"; case "$out" in *pong*) exit 0;; esac; exit 1'
+    assert subprocess.run(["bash", "-c", cap], capture_output=True).returncode == 0
+
+
+def test_downloads_are_run_owned_and_prerequisites_are_declared():
+    text = SCRIPT.read_text()
+    assert 'npm_config_cache="$TMP/npm-cache"' in text and 'PLAYWRIGHT_BROWSERS_PATH="$TMP/pw-browsers"' in text
+    assert "ldd" in text and "install-deps" not in text and "sudo" not in text
+    readme = (REPO / "README.md").read_text()
+    for lib in ("libnss3", "libgbm1", "libatk-bridge2.0-0", "libxkbcommon0", "libasound2"):
+        assert lib in readme, lib
+
+
+def test_readme_uses_the_real_repository_url_branch_and_artifact_names():
+    readme = (REPO / "README.md").read_text()
+    assert "git clone --branch logger-overhaul https://github.com/jonversusjon/mtkv3.git mtkv3" in readme
+    assert "cd mtkv3" in readme and "<repo-url>" not in readme and "tested-sha.txt" in readme
+    for name in ("summary.json", "browser-results.json", "source-exclusions.txt", "worker-ping.txt"):
+        assert name in readme, name
+    assert "No input of at least 80 bp" not in readme
+
+
+def test_spec_pauses_only_the_run_owned_worker_and_resumes_in_finally():
+    spec = (REPO / "tests/readiness/browser/acceptance.spec.mjs").read_text()
+    assert "assertRunOwnedWorker" in spec and "} finally {" in spec and "resumeWorker()" in spec
+    assert 'docker("pause", WORKER)' in spec and "sequence-status-pending" in spec
+    for cid in ("pending.worker-paused", "pending.api-state", "pending.ui-feedback", "pending.worker-resumed", "pending.then-success"):
+        assert cid in spec and cid in REQUIRED.read_text()

@@ -17,6 +17,11 @@ species.form-options
 invalid.message-visible
 invalid.submit-disabled
 invalid.no-request
+pending.worker-paused
+pending.api-state
+pending.ui-feedback
+pending.worker-resumed
+pending.then-success
 submit.accepted
 submit.sequence
 submit.parts
@@ -60,3 +65,5 @@ dev.vite-index
 dev.vite-main-js
 dev.api-proxy
 dev.backend-species
+stack.source-isolation
+stack.worker-ping
