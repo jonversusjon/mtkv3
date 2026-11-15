@@ -85,6 +85,11 @@ def create_app(config_override=None):
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
     def serve_react(path):
+        # Only client-side routes fall back to index.html. Anything that looks
+        # like a file (has an extension) or an API namespace must 404 rather
+        # than return HTML, otherwise a missing script is served as HTML.
+        if path.split("/", 1)[0] in ("api", "sse") or os.path.splitext(path)[1]:
+            return jsonify(error="Resource not found"), 404
         return send_from_directory("static/react", "index.html")
 
     # JSON error handlers

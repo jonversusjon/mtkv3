@@ -1,0 +1,7 @@
+== A: default container CMD 'flask run' (no FLASK_APP) ==
+
+Error: Could not locate a Flask application. Use the 'flask --app' option, 'FLASK_APP' environment variable, or a 'wsgi.py' or 'app.py' file in the current directory.
+== B: create_app() with a clean checkout (no log dir) ==
+ValueError: Unable to configure handler 'celery_file'
+== C: built bundle asset requested through Flask catch-all ==
+/assets/index-g7F6kxeS.js -> 200 text/html; charset=utf-8 b'<!doctype html>'

@@ -1,83 +1,38 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-*.egg-info/
+# VCS / editor
 .git/
 .vscode/
 .idea/
-*.log
-Dockerfile
-docker-compose*.yaml
-
-# 🚫 Ignore system-specific files
 *.swp
 *.swo
 *.bak
 *.tmp
-*.DS_Store  # macOS
-Thumbs.db   # Windows
+.DS_Store
+Thumbs.db
 
-# 🚫 Ignore pytest and test artifacts
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
 htmlcov/
-.tox/
+.coverage
 coverage.xml
-*.cover
-*.coverage
-*.hypothesis/
 
-# 🚫 Ignore virtual environments
-__pypackages__/
-node_modules/  # If you have frontend assets
-npm-debug.log
-
-# 🚫 Ignore additional editor files
-*.sublime-workspace
-*.sublime-project
-
-# 🚫 Ignore Docker cache directories
-.cache/
-.dockerignore
-.docker/
-docker-compose.override.yml
-
-# 🚫 Ignore compiled Cython files
-*.c
-*.so
-
-# 🚫 Ignore Jupyter/IPython checkpoints
-.ipynb_checkpoints/
-
-# 🚫 Ignore temporary database files
-*.db
-*.sqlite3
-*.sqlite
-
-# 🚫 Ignore temporary files
-*.pid
-*.lock
+# Logs and local state
 *.log
-*.gz
-*.zip
-*.tar
-*.tgz
-*.rar
+flask_backend/log_utils/logs/
 
-# 🚫 Ignore other temporary or generated files
-tmp/
-temp/
+# Frontend: dependencies and any stale bundle are rebuilt inside the image
+node_modules/
+**/node_modules/
+react-frontend/dist/
+flask_backend/static/react/
+
+# Readiness tooling (project-local environments)
+scripts/readiness/.venv/
+scripts/readiness/.tools/
