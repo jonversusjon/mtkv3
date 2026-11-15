@@ -4,6 +4,11 @@
 # Dependencies are installed reproducibly into project-local locations:
 #   backend : scripts/readiness/.venv  (Python 3.10/3.11 from flask_backend/requirements*.txt, exact pins)
 #   frontend: react-frontend/node_modules via `npm ci` (committed package-lock.json)
+# Run-owned cleanup: every generated path that did NOT exist when this run began
+# (venv, bootstrap tools, node_modules, built bundle, log dirs) is removed on exit,
+# pass or fail, so repeat judgment/review/merge sees a clean tree. Paths that already
+# existed before the run are never touched. Set READINESS_KEEP_DEPS=1 to keep
+# generated dependencies between local runs.
 # Nothing is skipped silently: a missing suite, test file, tool or dependency fails.
 set -euo pipefail
 
@@ -12,13 +17,35 @@ cd "$ROOT"
 VENV="$ROOT/scripts/readiness/.venv"
 TOOLS="$ROOT/scripts/readiness/.tools"
 
+export PYTHONDONTWRITEBYTECODE=1
+
+OWNED=()
+own_if_absent() { [ -e "$1" ] || OWNED+=("$1"); }
+cleanup() {
+  local rc=$? p
+  if [ "${READINESS_KEEP_DEPS:-0}" != 1 ]; then
+    for p in "${OWNED[@]}"; do
+      case "$p" in "$ROOT"/*) rm -rf -- "$p" ;; esac   # never delete outside this checkout
+    done
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+own_if_absent "$VENV"
+own_if_absent "$TOOLS"
+own_if_absent "$ROOT/react-frontend/node_modules"
+own_if_absent "$ROOT/flask_backend/static/react"
+own_if_absent "$ROOT/flask_backend/log_utils"
+own_if_absent "$ROOT/flask_backend/log_utils/logs"
+own_if_absent "$ROOT/flask_backend/logs"
+
 die() { echo "test-fast: ERROR: $*" >&2; exit 1; }
 
 # ---- suite registry: each later unit adds its tests/readiness/<suite> dir ----
 SUITES=(startup lifecycle followups)
-declare -A SUITE_PY=( [startup]="tests/readiness/backend/test_startup.py"
-                      [lifecycle]="tests/readiness/backend/test_lifecycle.py"
-                      [followups]="tests/readiness/backend/test_followups.py" )
+declare -A SUITE_PY=( [startup]="tests/readiness/test_startup.py"
+                      [lifecycle]="tests/readiness/test_lifecycle.py"
+                      [followups]="tests/readiness/test_followups.py" )
 declare -A SUITE_FRONTEND=( [startup]=1 )   # suites that also run vitest
 declare -A SUITE_SMOKE=( [startup]="tests/readiness/smoke_dev.py" )
 

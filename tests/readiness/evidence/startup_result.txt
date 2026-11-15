@@ -1,0 +1,8 @@
+=== suite: startup ===
+16 passed in 4.94s
+ Test Files  5 passed (5)
+      Tests  13 passed (13)
+DEV SMOKE OK: flask http://127.0.0.1:57639 vite http://127.0.0.1:57435 species ['homo_sapiens', 'mus_musculus']
+test-fast: all requested suites passed: startup
+Not verified here: Docker is unavailable in this environment, so image builds and `docker compose up` were not run; Dockerfile/compose are checked statically only.
+Baseline (pre-fix) defects: see baseline.txt.
