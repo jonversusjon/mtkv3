@@ -10,6 +10,7 @@ services:
     command: flask --app flask_backend.app:create_app run --host=0.0.0.0 --debug --reload
     environment:
       PYTHONPATH: /app
+      PYTHONDONTWRITEBYTECODE: "1"   # the repo is bind-mounted: do not leave root-owned .pyc files in the checkout
       FLASK_APP: flask_backend.app:create_app()
       FLASK_ENV: development
       FLASK_DEBUG: "1"
@@ -20,7 +21,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_HOST: redis
     ports:
-      - "5000:5000"
+      - "127.0.0.1:${MTK_BACKEND_PORT:-5000}:5000"
     depends_on:
       - redis
 
@@ -39,6 +40,7 @@ services:
       --concurrency=4 --loglevel=INFO --logfile=/app/flask_backend/log_utils/logs/celery_worker.log"
     environment:
       PYTHONPATH: /app
+      PYTHONDONTWRITEBYTECODE: "1"   # the repo is bind-mounted: do not leave root-owned .pyc files in the checkout
       FLASK_ENV: development
       FLASK_TESTING: "true"
       PREFILL_DATA: flask_backend.dev.prefill_data.dev_defaults
@@ -61,14 +63,14 @@ services:
       VITE_HOST: 0.0.0.0
       VITE_PROXY_TARGET: http://backend:5000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${MTK_FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${MTK_REDIS_PORT:-6379}:6379"
 
 volumes:
   frontend_node_modules:

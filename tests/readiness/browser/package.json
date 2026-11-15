@@ -1,0 +1,10 @@
+{
+  "name": "mtkv3-readiness-browser",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Real-stack Playwright/Chromium acceptance checks (run via scripts/readiness/verify-clean-stack.sh)",
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  }
+}

@@ -2,6 +2,8 @@
 # the built frontend from Flask. No source bind mounts, so the bundle baked
 # into the image is what is served. For live-reload development use
 # docker-compose.dev.yaml.
+# Host ports default to 5000 (backend) and 6379 (redis) on localhost only; set
+# MTK_BACKEND_PORT / MTK_REDIS_PORT to run an isolated copy beside another stack.
 x-app-env: &app-env
   PYTHONPATH: /app
   FLASK_ENV: production
@@ -19,7 +21,7 @@ services:
     command: ["flask", "--app", "flask_backend.app:create_app", "run", "--host=0.0.0.0", "--port=5000"]
     environment: *app-env
     ports:
-      - "5000:5000"
+      - "127.0.0.1:${MTK_BACKEND_PORT:-5000}:5000"
     depends_on:
       - redis
 
@@ -36,4 +38,4 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${MTK_REDIS_PORT:-6379}:6379"

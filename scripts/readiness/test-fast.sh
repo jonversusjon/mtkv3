@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fast readiness tests.  Usage: scripts/readiness/test-fast.sh <suite>...
-#   suites: startup | lifecycle | followups | all
+#   suites: startup | lifecycle | followups | browser | all   (browser = harness validation incl. verify-clean-stack.sh --check; it never runs the real browser)
 # Dependencies are installed reproducibly into project-local locations:
 #   backend : scripts/readiness/.venv  (Python 3.10/3.11 from flask_backend/requirements*.txt, exact pins)
 #   frontend: react-frontend/node_modules via `npm ci` (committed package-lock.json)
@@ -34,6 +34,7 @@ trap cleanup EXIT
 own_if_absent "$VENV"
 own_if_absent "$TOOLS"
 own_if_absent "$ROOT/react-frontend/node_modules"
+own_if_absent "$ROOT/tests/readiness/browser/node_modules"
 own_if_absent "$ROOT/flask_backend/static/react"
 own_if_absent "$ROOT/flask_backend/log_utils"
 own_if_absent "$ROOT/flask_backend/log_utils/logs"
@@ -43,14 +44,15 @@ own_if_absent "$ROOT/flask_backend/static/exports"   # export tests isolate thei
 die() { echo "test-fast: ERROR: $*" >&2; exit 1; }
 
 # ---- suite registry: each later unit adds its tests/readiness/<suite> dir ----
-SUITES=(startup lifecycle followups)
+SUITES=(startup lifecycle followups browser)
 declare -A SUITE_PY=( [startup]="tests/readiness/test_startup.py"
                       [lifecycle]="tests/readiness/test_lifecycle.py"
-                      [followups]="tests/readiness/test_followups.py" )
-declare -A SUITE_FRONTEND=( [startup]=1 [lifecycle]=1 [followups]=1 )   # suites that also run vitest
+                      [followups]="tests/readiness/test_followups.py"
+                      [browser]="tests/readiness/test_browser_harness.py" )
+declare -A SUITE_FRONTEND=( [startup]=1 [lifecycle]=1 [followups]=1 )   # browser: harness checks only (no vitest)   # suites that also run vitest
 declare -A SUITE_SMOKE=( [startup]="tests/readiness/smoke_dev.py" )
 
-usage() { echo "usage: $0 <startup|lifecycle|followups|all>..." >&2; exit 2; }
+usage() { echo "usage: $0 <startup|lifecycle|followups|browser|all>..." >&2; exit 2; }
 [ "$#" -ge 1 ] || usage
 REQUESTED=()
 for s in "$@"; do
@@ -95,8 +97,15 @@ ensure_node() {
   (cd react-frontend && npm ci --no-audit --no-fund >/dev/null) || die "npm ci failed (lockfile out of sync?)"
 }
 
+ensure_browser_runner() {
+  # Only the Playwright *test runner* (no browser download): the harness tests run real Playwright
+  # specs that skip/pass without launching a browser, to prove skipped tests can never become a PASS.
+  (cd tests/readiness/browser && npm ci --no-audit --no-fund >/dev/null) || die "npm ci for the Playwright runner failed"
+}
+
 ensure_venv
 ensure_node
+case " ${REQUESTED[*]} " in *" browser "*) ensure_browser_runner ;; esac
 
 # ---- run ---------------------------------------------------------------------
 for s in "${REQUESTED[@]}"; do

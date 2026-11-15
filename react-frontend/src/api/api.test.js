@@ -216,3 +216,35 @@ describe("exportPrimers", () => {
     await expect(exportPrimers([["a", "A", ""]])).rejects.toThrow("Unknown export");
   });
 });
+
+describe("submitProtocol max-mutations limit (helper boundary)", () => {
+  const postedBody = async (form) => {
+    const fetchMock = vi.fn(() => reply({ job_id: "j", task_id: "t" }, 202));
+    vi.stubGlobal("fetch", fetchMock);
+    await submitProtocol(form);
+    return JSON.parse(fetchMock.mock.calls[0][1].body);
+  };
+
+  it.each([1, 2, 3])("sends the form selection %i as maxMutPerSite", async (n) => {
+    expect((await postedBody({ maxMutationsPerSite: n })).maxMutPerSite).toBe(n);
+  });
+
+  it("the current form selection beats a stale canonical value", async () => {
+    expect((await postedBody({ maxMutationsPerSite: 1, maxMutPerSite: 3 })).maxMutPerSite).toBe(1);
+  });
+
+  it("passes a direct canonical value through when there is no form selection", async () => {
+    const body = await postedBody({ maxMutPerSite: 2 });
+    expect(body.maxMutPerSite).toBe(2);
+  });
+
+  it("omits the field when both are absent so the backend default applies", async () => {
+    expect("maxMutPerSite" in (await postedBody({ species: "homo_sapiens" }))).toBe(false);
+  });
+
+  it("does not mutate the caller's form object", async () => {
+    const form = Object.freeze({ maxMutationsPerSite: 2, maxMutPerSite: 3, species: "x" });
+    await postedBody(form);
+    expect(form).toEqual({ maxMutationsPerSite: 2, maxMutPerSite: 3, species: "x" });
+  });
+});
