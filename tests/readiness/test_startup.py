@@ -165,6 +165,45 @@ def test_asset_checker_accepts_valid_javascript_controls(payload):
     assert len(ac.check_assets(_fetcher(ok))) == 2
 
 
+def test_asset_checker_rejects_html_fragments_served_as_javascript():
+    for frag in (b'<title>SPA</title><div id="root"></div>', b"<div id=root></div>",
+                 b"\xef\xbb\xbf/* c */<div>SPA</div>"):
+        bad = {**GOOD, "/static/react/assets/a.js": (200, "text/javascript", frag)}
+        with pytest.raises(ac.AssetCheckError, match="HTML document"):
+            ac.check_assets(_fetcher(bad))
+
+
+def test_asset_checker_accepts_svg_asset_and_css_with_html_text():
+    svg_index = b'<!doctype html><script src="/a.js"></script><link rel="icon" href="/i.svg">'
+    for svg in (b'<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+                b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>',
+                b'<!-- c --><svg viewBox="0 0 1 1"></svg>'):
+        ok = {"/": (200, "text/html", svg_index), "/a.js": (200, "text/javascript", b"1"),
+              "/i.svg": (200, "image/svg+xml", svg)}
+        assert len(ac.check_assets(_fetcher(ok))) == 2
+    css = {**GOOD, "/static/react/assets/a.css": (200, "text/css", b'a::after{content:"<div>"}')}
+    assert len(ac.check_assets(_fetcher(css))) == 2
+
+
+@pytest.mark.parametrize("tags", [
+    b"<script src='/a.js'></script><script src=\"/b.js\"></script>",
+    b"<script src=/a.js></script><script src=\"/b.js\"></script>",
+    b"<script src = '/a.js' ></script><script SRC=\"/b.js\"></script>",
+    b"<script src='/a&#46;js'></script><script src=\"/b.js\"></script>",
+])
+def test_referenced_assets_parses_quote_styles_and_entities(tags):
+    assert ac.referenced_assets("<!doctype html>" + tags.decode()) == ["/a.js", "/b.js"]
+
+
+def test_asset_checker_detects_missing_single_quoted_secondary_asset():
+    index = b"<!doctype html><script src=\"/b.js\"></script><script src='/a.js'></script>"
+    table = {"/": (200, "text/html", index), "/b.js": (200, "text/javascript", b"1")}
+    with pytest.raises(ac.AssetCheckError, match="missing asset"):
+        ac.check_assets(_fetcher(table))
+    table["/a.js"] = (200, "text/javascript", b"2")
+    assert ac.check_assets(_fetcher(table)) == ["/b.js", "/a.js"]
+
+
 def test_asset_checker_accepts_valid_css_with_comments():
     ok = {**GOOD, "/static/react/assets/a.css": (200, "text/css", b"/* c */a{color:red}")}
     assert len(ac.check_assets(_fetcher(ok))) == 2

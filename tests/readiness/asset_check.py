@@ -8,6 +8,7 @@ Fails (raises AssetCheckError) when:
 Status 200 alone is deliberately NOT sufficient.
 """
 import re
+from html.parser import HTMLParser
 from typing import Callable, List, Tuple
 
 # fetch(path) -> (status_code, content_type, body_bytes)
@@ -15,7 +16,6 @@ Fetch = Callable[[str], Tuple[int, str, bytes]]
 
 JS_TYPES = ("text/javascript", "application/javascript")
 CSS_TYPES = ("text/css",)
-_ATTR = re.compile(r'(?:src|href)="([^"]+)"')
 
 
 class AssetCheckError(AssertionError):
@@ -23,7 +23,10 @@ class AssetCheckError(AssertionError):
 
 
 _COMMENT = re.compile(rb"<!--.*?-->|/\*.*?\*/", re.S)
-_HTML_START = re.compile(rb"<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]", re.I)
+# An HTML document or fragment (wrappers may be omitted: "<title>..", "<div>..").
+# A valid JS/CSS payload never starts with a tag; SVG documents (<svg>, <?xml>,
+# <!DOCTYPE svg>) are legitimate image assets and are not treated as HTML.
+_HTML_START = re.compile(rb"<!doctype\s+html|<(?!svg[\s>/])[a-z][a-z0-9:-]*", re.I)
 
 
 _WS = re.compile(rb"\s*")
@@ -66,10 +69,29 @@ def _wanted_types(url: str) -> Tuple[str, ...]:
     }[ext]
 
 
+class _RefParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.urls: List[str] = []
+
+    def _collect(self, attrs):
+        for name, value in attrs:
+            if name in ("src", "href") and value:
+                self.urls.append(value.strip())
+
+    def handle_starttag(self, tag, attrs):
+        self._collect(attrs)
+
+    def handle_startendtag(self, tag, attrs):
+        self._collect(attrs)
+
+
 def referenced_assets(index_html: str) -> List[str]:
+    parser = _RefParser()
+    parser.feed(index_html)
+    parser.close()
     out = []
-    for m in _ATTR.finditer(index_html):
-        url = m.group(1)
+    for url in parser.urls:
         if url.startswith(("http://", "https://", "//", "data:")):
             continue
         if re.search(r"\.(js|mjs|css|ico|png|jpe?g|svg|webmanifest|json)(\?|#|$)", url, re.I):
