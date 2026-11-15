@@ -104,3 +104,66 @@ def app(sandbox):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+# ---- lifecycle fixtures: the real app + the real worker code, fake external services ----
+@pytest.fixture
+def lifecycle(monkeypatch, tmp_path):
+    """Real Flask app and real Celery task bodies, run inline, with in-memory
+    redis/SSE.  Everything runs from a scratch cwd (the worker writes relative
+    ``debug_output``; the symlink lets it find the package's static data), so the
+    checkout is never touched."""
+    from types import SimpleNamespace
+
+    from fakes import FakeRedis, FakeSse
+
+    (tmp_path / "flask_backend").symlink_to(REPO / "flask_backend")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FLASK_ENV", "development")
+    monkeypatch.setenv("MTKV3_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.delenv("PREFILL_DATA", raising=False)
+
+    from flask_backend import app as app_module
+    from flask_backend import celery_tasks, job_state
+
+    redis_fake, sse_fake = FakeRedis(), FakeSse()
+    job_state.set_client(redis_fake)
+    monkeypatch.setattr(celery_tasks, "redis_client", redis_fake)
+    from flask_backend.services import utils as services_utils
+    monkeypatch.setattr(services_utils, "redis_client", redis_fake)
+    monkeypatch.setattr(celery_tasks, "sse", sse_fake)
+
+    class InlineGroup:
+        def __init__(self, sigs):
+            self.sigs = list(sigs)
+            self.id = "group-1"
+
+        def apply_async(self):
+            self.results = [s.apply() for s in self.sigs]  # failures are captured, not raised
+            return self
+
+    monkeypatch.setattr(celery_tasks, "group", InlineGroup)
+
+    app = app_module.create_app()
+    sent = []
+    parent_results = {}
+
+    class FakeCelery:
+        """Stands in for the broker: runs the real parent task inline."""
+
+        def send_task(self, name, args=None, **kw):
+            assert name == "flask_backend.celery_tasks.generate_protocol_task"
+            task_id = f"parent-{len(sent) + 1}"
+            sent.append((name, args))
+            parent_results[task_id] = celery_tasks.generate_protocol_task.apply(args=args)
+            return SimpleNamespace(id=task_id)
+
+        def AsyncResult(self, task_id):
+            r = parent_results[task_id]
+            return SimpleNamespace(state=r.state, result=r.result, info=r.result)
+
+    app.extensions["celery"] = FakeCelery()
+    yield SimpleNamespace(app=app, client=app.test_client(), redis=redis_fake, sse=sse_fake,
+                          sent=sent, tasks=celery_tasks, job_state=job_state)
+    job_state.set_client(None)
+    _close_log_handlers()

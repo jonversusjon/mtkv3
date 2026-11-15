@@ -9,3 +9,8 @@ const DEFAULT_ORIGIN = "";
 export const SSE_BASE_URL = (import.meta.env.VITE_SSE_URL ?? DEFAULT_ORIGIN) + "/sse";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL ?? DEFAULT_ORIGIN) + "/api";
+
+// How often the browser asks the server for a job's status, and how long it waits
+// for every sequence to reach a terminal state before reporting a timeout.
+export const JOB_POLL_INTERVAL_MS = 2000;
+export const JOB_TIMEOUT_MS = 15 * 60 * 1000;

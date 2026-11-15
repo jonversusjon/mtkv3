@@ -1,0 +1,43 @@
+{
+  "_purpose": "Independently justified stable expectations for the named regression fixture. These are NOT snapshots of the application's output: each field is derived from the literal sequence or from an established biological/format rule, and tests/readiness/test_lifecycle.py re-derives the restriction sites from the literal sequence on every run.",
+  "fixture": {
+    "name": "NLS-mTag-BFP (benign: a fluorescent-protein fusion coding sequence, no user data)",
+    "sequence_source": "flask_backend/dev/tests/test_data.py :: TEST_SEQ_1",
+    "template_source": "flask_backend/dev/tests/test_data.py :: TEST_TEMPLATE_SEQ",
+    "prefill_source": "flask_backend/dev/prefill_data/dev_defaults.py :: dev_config_2['sequencesToDomesticate'][0]",
+    "dev_config_2_index": 0,
+    "sequence_constant": "TEST_SEQ_1",
+    "primerName": "NLS-mTag-BFP",
+    "mtkPartLeft": "5",
+    "mtkPartRight": "5",
+    "sequence_length": 597,
+    "settings": {
+      "species": "homo_sapiens",
+      "kozak": "MTK",
+      "maxMutPerSite": 1,
+      "note": "dev_config_2 leaves species empty (the form fills in the first available species, homo_sapiens). The form field is named maxMutationsPerSite but the backend model only reads the alias maxMutPerSite; the tests send the alias so the setting is actually applied. That naming mismatch is reported, not changed, here."
+    },
+    "follow_up_action": "Supports user-selected primer follow-up: the sequence has exactly one restriction site (below) so there is one site key to choose a codon for. A second fixture is therefore not needed."
+  },
+  "expected": {
+    "terminal_state": "success",
+    "terminal_state_source": "The sequence is in frame, contains one BsaI site and is processable; a finished run must end in 'success' for sequence 0.",
+    "processed_sequence": "identical to TEST_SEQ_1 upper-cased",
+    "processed_sequence_source": "Preprocessing rule (sequence_preparator.py documented behaviour): the start codon is only trimmed when the left MTK part is 3/3a (here 5); the last codon GCC is not a stop (TAA/TAG/TGA); length 597 = 3 x 199 so no frame adjustment. Verifiable by reading the literal: it begins ATG and ends ...GCC.",
+    "restriction_sites": [
+      {
+        "enzyme": "BsaI",
+        "strand": "-",
+        "recognition_seq": "GAGACC",
+        "position": 480,
+        "frame": 0
+      }
+    ],
+    "restriction_sites_source": "Literal scan of TEST_SEQ_1 (0-based index of match start) for the published recognition sequences BsmBI CGTCTC and BsaI GGTCTC and their reverse complements GAGACG / GAGACC. Only GAGACC occurs, once, at index 480; 480 mod 3 = 0 gives frame 0. No other BsmBI/BsaI site exists on either strand.",
+    "synonymous_alternatives_by_amino_acid": {
+      "E": ["GAA"],
+      "T": ["ACA", "ACG", "ACT"]
+    },
+    "synonymous_alternatives_source": "The site GAGACC at frame 0 spans the codons GAG (Glu) and ACC (Thr). A mutation that removes the site without changing the protein must use a synonymous codon (standard genetic code, NCBI table 1): Glu -> only GAA besides GAG; Thr -> ACA, ACG, ACT besides ACC. Keys are one-letter amino acids, so the expectation does not depend on the application's codon-ordinal convention."
+  }
+}
